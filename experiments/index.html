@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experiments</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap');
+        
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #0a0a0a;
+            color: #e8e8e8;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 300;
+            color: #ffffff;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .experiments-list {
+            display: flex;
+            flex-direction: column;
+            gap: -1px;
+        }
+
+        .experiment-item {
+            background: #111111;
+            border: 1px solid #222222;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .experiment-item:first-child {
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        
+        .experiment-item:not(:last-child) {
+            border-bottom: 0px;
+        }
+
+        .experiment-item:hover {
+            border: 1px solid #444444;
+            background: #161616;
+            border-color: #444444;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .experiment-item:last-child {
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+
+
+        .experiment-link {
+            display: block;
+            padding: 20px 24px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .experiment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .experiment-name {
+            font-size: 1rem;
+            font-weight: 400;
+            color: #ffffff;
+            margin: 0;
+        }
+
+        .experiment-date {
+            font-size: 0.85rem;
+            color: #888888;
+            margin: 0;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666666;
+            font-size: 0.9rem;
+            padding: 80px 20px;
+        }
+
+        .no-experiments {
+            text-align: center;
+            color: #666666;
+            font-size: 0.9rem;
+            padding: 80px 20px;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 20px 16px;
+            }
+            
+            .experiment-link {
+                padding: 16px 20px;
+            }
+            
+            .experiment-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Experiments</h1>
+        </div>
+        
+        <div id="experimentsList" class="experiments-list">
+            <div class="loading">Loading experiments...</div>
+        </div>
+    </div>
+
+    <script>
+        
+        function parseDateFromFolderName(folderName) {
+            // Look for pattern: name-mmddyy
+            const match = folderName.match(/-(\d{2})(\d{2})(\d{2})$/);
+            if (match) {
+                const [, mm, dd, yy] = match;
+                // Convert 2-digit year to 4-digit year (assuming 2000s)
+                const yyyy = `20${yy}`;
+                return {
+                    formatted: `${mm}.${dd}.${yyyy}`,
+                    sortable: new Date(yyyy, mm - 1, dd), // Create Date object for sorting
+                    cleanName: folderName.replace(/-\d{6}$/, '') // Remove date from name
+                };
+            }
+            return {
+                formatted: 'Unknown',
+                sortable: new Date(0), // Very old date for sorting unknowns to the end
+                cleanName: folderName // Keep original name if no date pattern
+            };
+        }
+        
+        async function loadExperiments() {
+            const experimentsList = document.getElementById('experimentsList');
+            
+            try {
+                const response = await fetch('.');
+                const html = await response.text();
+                
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const links = doc.querySelectorAll('a[href]');
+                
+                const experiments = [];
+                
+                for (const link of links) {
+                    const href = link.getAttribute('href');
+                    
+                    if (href === '../' || href === './' || href === '.' || href === '..') {
+                        continue;
+                    }
+                    
+                    if (href.endsWith('/')) {
+                        const folderName = href.slice(0, -1);
+                        const displayName = folderName.split('/').pop();
+                        const dateInfo = parseDateFromFolderName(displayName);
+                        
+                        experiments.push({
+                            name: dateInfo.cleanName,
+                            href: href,
+                            date: dateInfo.formatted,
+                            sortableDate: dateInfo.sortable
+                        });
+                    }
+                }
+                
+                if (experiments.length === 0) {
+                    experimentsList.innerHTML = `
+                        <div class="no-experiments">
+                            No experiments found
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Sort by date (newest first), then by name
+                experiments.sort((a, b) => {
+                    const dateComparison = b.sortableDate - a.sortableDate;
+                    if (dateComparison !== 0) {
+                        return dateComparison;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+                
+                const experimentsHTML = experiments.map(exp => `
+                    <div class="experiment-item">
+                        <a href="${exp.href}" class="experiment-link">
+                            <div class="experiment-header">
+                                <h3 class="experiment-name">${escapeHtml(exp.name)}</h3>
+                            </div>
+                            <p class="experiment-date">Date: ${exp.date}</p>
+                        </a>
+                    </div>
+                `).join('');
+                
+                experimentsList.innerHTML = experimentsHTML;
+                
+            } catch (error) {
+                console.error('Error loading experiments:', error);
+                experimentsList.innerHTML = `
+                    <div class="no-experiments">
+                        No experiments found
+                    </div>
+                `;
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        document.addEventListener('DOMContentLoaded', loadExperiments);
+    </script>
+</body>
+</html>
