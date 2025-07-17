@@ -5,252 +5,212 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Experiments</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap');
-        
         * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #0a0a0a;
-            color: #e8e8e8;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #0d1117;
+            color: #e6edf3;
+            line-height: 1.6;
+            padding: 2rem;
         }
 
         .container {
-            max-width: 600px;
-            width: 100%;
-            padding: 40px 20px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 60px;
+            max-width: 800px;
+            margin: 0 auto;
         }
 
         h1 {
             font-size: 2rem;
-            font-weight: 300;
-            color: #ffffff;
-            margin: 0;
-            letter-spacing: -0.5px;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            color: #f0f6fc;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 0.5rem;
         }
 
-        .experiments-list {
+        .folder-list {
+            list-style: none;
+        }
+
+        .folder-item {
+            margin-bottom: 0.5rem;
+        }
+
+        .folder-link {
             display: flex;
-            flex-direction: column;
-            gap: -1px;
-        }
-
-        .experiment-item {
-            background: #111111;
-            border: 1px solid #222222;
-            transition: all 0.2s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .experiment-item:first-child {
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
-        }
-        
-        .experiment-item:not(:last-child) {
-            border-bottom: 0px;
-        }
-
-        .experiment-item:hover {
-            border: 1px solid #444444;
-            background: #161616;
-            border-color: #444444;
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
-        }
-
-        .experiment-item:last-child {
-            border-bottom-left-radius: 8px;
-            border-bottom-right-radius: 8px;
-        }
-
-
-        .experiment-link {
-            display: block;
-            padding: 20px 24px;
-            text-decoration: none;
-            color: inherit;
-        }
-
-        .experiment-header {
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            padding: 0.75rem 1rem;
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #e6edf3;
+            transition: all 0.2s ease;
         }
 
-        .experiment-name {
+        .folder-link:hover {
+            background-color: #21262d;
+            border-color: #8b949e;
+            transform: translateX(4px);
+        }
+
+        .folder-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            font-size: 1.0rem;
+        }
+
+        .folder-name {
+            margin-left: 20px;
             font-size: 1rem;
-            font-weight: 400;
+            font-weight: 500;
+        }
+
+        .parent-link {
+            display: none;
+        }
+
+        .parent-link .folder-link {
+            background-color: #0969da;
+            border-color: #0969da;
+        }
+
+        .parent-link .folder-link:hover {
+            background-color: #1f6feb;
+            border-color: #1f6feb;
+        }
+
+        .parent-link .folder-icon {
             color: #ffffff;
-            margin: 0;
         }
 
-        .experiment-date {
-            font-size: 0.85rem;
-            color: #888888;
-            margin: 0;
-        }
-
-        .loading {
+        .empty-state {
             text-align: center;
-            color: #666666;
-            font-size: 0.9rem;
-            padding: 80px 20px;
+            padding: 3rem 1rem;
+            color: #7d8590;
         }
 
-        .no-experiments {
-            text-align: center;
-            color: #666666;
-            font-size: 0.9rem;
-            padding: 80px 20px;
+        .empty-state .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #30363d;
         }
 
         @media (max-width: 640px) {
-            .container {
-                padding: 20px 16px;
+            body {
+                padding: 1rem;
             }
-            
-            .experiment-link {
-                padding: 16px 20px;
+
+            h1 {
+                font-size: 1.5rem;
             }
-            
-            .experiment-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
+
+            .folder-link {
+                padding: 0.5rem 0.75rem;
+            }
+
+            .folder-name {
+                font-size: 0.9rem;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>Experiments</h1>
-        </div>
+        <h1 id="page-title">Experiments</h1>
         
-        <div id="experimentsList" class="experiments-list">
-            <div class="loading">Loading experiments...</div>
+        <div id="parent-nav" class="parent-link">
+            <a href="../" class="folder-link">
+                <span class="folder-icon">↩</span>
+                <span class="folder-name">.. (Parent Directory)</span>
+            </a>
+        </div>
+
+        <ul class="folder-list" id="folder-list">
+            <!-- Folders will be populated by JavaScript -->
+        </ul>
+
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <div class="empty-icon">🐵</div>
+            <p>No folders found in this directory</p>
         </div>
     </div>
 
     <script>
+        // Array of monkey emojis to choose from
+        const monkeyEmojis = ['🐵', '🐒', '🙈', '🙉', '🙊', '🦍', '🦧'];
         
-        function parseDateFromFolderName(folderName) {
-            // Look for pattern: name-mmddyy
-            const match = folderName.match(/-(\d{2})(\d{2})(\d{2})$/);
-            if (match) {
-                const [, mm, dd, yy] = match;
-                // Convert 2-digit year to 4-digit year (assuming 2000s)
-                const yyyy = `20${yy}`;
-                return {
-                    formatted: `${mm}.${dd}.${yyyy}`,
-                    sortable: new Date(yyyy, mm - 1, dd), // Create Date object for sorting
-                    cleanName: folderName.replace(/-\d{6}$/, '') // Remove date from name
-                };
-            }
-            return {
-                formatted: 'Unknown',
-                sortable: new Date(0), // Very old date for sorting unknowns to the end
-                cleanName: folderName // Keep original name if no date pattern
-            };
+        function getRandomMonkey() {
+            return monkeyEmojis[Math.floor(Math.random() * monkeyEmojis.length)];
         }
-        
-        async function loadExperiments() {
-            const experimentsList = document.getElementById('experimentsList');
-            
+
+        async function getFolders() {
             try {
-                const response = await fetch('.');
-                const html = await response.text();
+                const apiUrl = 'https://api.github.com/repositories/935509738/contents/experiments';
+                const response = await fetch(apiUrl);
                 
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const links = doc.querySelectorAll('a[href]');
-                
-                const experiments = [];
-                
-                for (const link of links) {
-                    const href = link.getAttribute('href');
-                    
-                    if (href === '../' || href === './' || href === '.' || href === '..') {
-                        continue;
-                    }
-                    
-                    if (href.endsWith('/')) {
-                        const folderName = href.slice(0, -1);
-                        const displayName = folderName.split('/').pop();
-                        const dateInfo = parseDateFromFolderName(displayName);
-                        
-                        experiments.push({
-                            name: dateInfo.cleanName,
-                            href: href,
-                            date: dateInfo.formatted,
-                            sortableDate: dateInfo.sortable
-                        });
-                    }
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
-                if (experiments.length === 0) {
-                    experimentsList.innerHTML = `
-                        <div class="no-experiments">
-                            No experiments found
-                        </div>
-                    `;
-                    return;
-                }
-                
-                // Sort by date (newest first), then by name
-                experiments.sort((a, b) => {
-                    const dateComparison = b.sortableDate - a.sortableDate;
-                    if (dateComparison !== 0) {
-                        return dateComparison;
-                    }
-                    return a.name.localeCompare(b.name);
-                });
-                
-                const experimentsHTML = experiments.map(exp => `
-                    <div class="experiment-item">
-                        <a href="${exp.href}" class="experiment-link">
-                            <div class="experiment-header">
-                                <h3 class="experiment-name">${escapeHtml(exp.name)}</h3>
-                            </div>
-                            <p class="experiment-date">Date: ${exp.date}</p>
-                        </a>
-                    </div>
-                `).join('');
-                
-                experimentsList.innerHTML = experimentsHTML;
-                
+                const contents = await response.json();
+                return contents
+                    .filter(item => item.type === 'dir')
+                    .map(item => item.name)
+                    .sort();
+                    
             } catch (error) {
-                console.error('Error loading experiments:', error);
-                experimentsList.innerHTML = `
-                    <div class="no-experiments">
-                        No experiments found
-                    </div>
-                `;
+                console.error('Error fetching folders:', error);
+                return [];
             }
         }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+
+        async function initializePage() {
+            // Get folders from GitHub API
+            const folders = await getFolders();
+
+            // Populate folder list
+            const folderList = document.getElementById('folder-list');
+            const emptyState = document.getElementById('empty-state');
+
+            if (folders.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            folders.forEach(folder => {
+                const listItem = document.createElement('li');
+                listItem.className = 'folder-item';
+
+                const link = document.createElement('a');
+                link.href = `./${folder}/`;
+                link.className = 'folder-link';
+
+                const icon = document.createElement('span');
+                icon.className = 'folder-icon';
+                icon.textContent = getRandomMonkey();
+
+                const name = document.createElement('span');
+                name.className = 'folder-name';
+                name.textContent = folder;
+
+                link.appendChild(icon);
+                link.appendChild(name);
+                listItem.appendChild(link);
+                folderList.appendChild(listItem);
+            });
         }
-        
-        document.addEventListener('DOMContentLoaded', loadExperiments);
+
+        // Initialize page when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initializePage);
     </script>
 </body>
 </html>
