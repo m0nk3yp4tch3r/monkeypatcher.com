@@ -51,6 +51,20 @@
             text-decoration: none;
             color: #e6edf3;
             transition: all 0.2s ease;
+            justify-content: space-between;
+        }
+
+        .folder-info {
+            display: flex;
+            align-items: center;
+            flex: 1;
+        }
+
+        .folder-date {
+            font-size: 0.85rem;
+            color: #7d8590;
+            margin-left: auto;
+            white-space: nowrap;
         }
 
         .folder-link:hover {
@@ -63,13 +77,15 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 15px;
-            height: 15px;
-            font-size: 1.0rem;
+            width: 20px;
+            height: 20px;
+            margin-right: 0.75rem;
+            color: #7c3aed;
+            font-size: 1.2rem;
         }
 
         .folder-name {
-            margin-left: 20px;
+            margin-left: 10px;
             font-size: 1rem;
             font-weight: 500;
         }
@@ -115,10 +131,22 @@
 
             .folder-link {
                 padding: 0.5rem 0.75rem;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .folder-info {
+                width: 100%;
+                margin-bottom: 0.25rem;
             }
 
             .folder-name {
                 font-size: 0.9rem;
+            }
+
+            .folder-date {
+                font-size: 0.8rem;
+                margin-left: 0;
             }
         }
     </style>
@@ -152,7 +180,59 @@
             return monkeyEmojis[Math.floor(Math.random() * monkeyEmojis.length)];
         }
 
-        async function getFolders() {
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            // Format as mm.dd.yyyy
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const year = date.getFullYear();
+            const formattedDate = `${day}.${month}.${year}`;
+            
+            // Get relative time
+            let relativeTime;
+            if (diffDays === 1) {
+                relativeTime = 'yesterday';
+            } else if (diffDays < 7) {
+                relativeTime = `${diffDays} days ago`;
+            } else if (diffDays < 30) {
+                const weeks = Math.floor(diffDays / 7);
+                relativeTime = weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+            } else if (diffDays < 365) {
+                const months = Math.floor(diffDays / 30);
+                relativeTime = months === 1 ? '1 month ago' : `${months} months ago`;
+            } else {
+                const years = Math.floor(diffDays / 365);
+                relativeTime = years === 1 ? '1 year ago' : `${years} years ago`;
+            }
+            
+            return `${formattedDate} (${relativeTime})`;
+        }
+
+        async function getFolderCommitDate(folderName) {
+            try {
+                const apiUrl = `https://api.github.com/repositories/935509738/commits?path=experiments/${folderName}&per_page=1`;
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    return null;
+                }
+                
+                const commits = await response.json();
+                if (commits.length > 0) {
+                    return commits[0].commit.author.date;
+                }
+                return null;
+            } catch (error) {
+                console.error(`Error fetching commit date for ${folderName}:`, error);
+                return null;
+            }
+        }
+
+        async function getFoldersWithCommitDates() {
             try {
                 const apiUrl = 'https://api.github.com/repositories/935509738/contents/experiments';
                 const response = await fetch(apiUrl);
@@ -162,10 +242,26 @@
                 }
                 
                 const contents = await response.json();
-                return contents
+                const folders = contents
                     .filter(item => item.type === 'dir')
-                    .map(item => item.name)
-                    .sort();
+                    .map(item => item.name);
+                
+                // Fetch commit dates for all folders
+                const foldersWithDates = await Promise.all(
+                    folders.map(async (folder) => {
+                        const commitDate = await getFolderCommitDate(folder);
+                        return {
+                            name: folder,
+                            commitDate: commitDate,
+                            sortDate: commitDate ? new Date(commitDate) : new Date(0) // Use epoch for folders with no commits
+                        };
+                    })
+                );
+                
+                // Sort by commit date (newest first)
+                foldersWithDates.sort((a, b) => b.sortDate - a.sortDate);
+                
+                return foldersWithDates;
                     
             } catch (error) {
                 console.error('Error fetching folders:', error);
@@ -174,25 +270,29 @@
         }
 
         async function initializePage() {
-            // Get folders from GitHub API
-            const folders = await getFolders();
+            // Get folders with commit dates from GitHub API
+            const foldersWithDates = await getFoldersWithCommitDates();
 
             // Populate folder list
             const folderList = document.getElementById('folder-list');
             const emptyState = document.getElementById('empty-state');
 
-            if (folders.length === 0) {
+            if (foldersWithDates.length === 0) {
                 emptyState.style.display = 'block';
                 return;
             }
 
-            folders.forEach(folder => {
+            // Create folder items (already sorted by commit date)
+            foldersWithDates.forEach(folderData => {
                 const listItem = document.createElement('li');
                 listItem.className = 'folder-item';
 
                 const link = document.createElement('a');
-                link.href = `./${folder}/`;
+                link.href = `./${folderData.name}/`;
                 link.className = 'folder-link';
+
+                const folderInfo = document.createElement('div');
+                folderInfo.className = 'folder-info';
 
                 const icon = document.createElement('span');
                 icon.className = 'folder-icon';
@@ -200,10 +300,22 @@
 
                 const name = document.createElement('span');
                 name.className = 'folder-name';
-                name.textContent = folder;
+                name.textContent = folderData.name;
 
-                link.appendChild(icon);
-                link.appendChild(name);
+                const date = document.createElement('span');
+                date.className = 'folder-date';
+                
+                // Set the date immediately since we already have it
+                if (folderData.commitDate) {
+                    date.textContent = formatDate(folderData.commitDate);
+                } else {
+                    date.textContent = 'No commits';
+                }
+
+                folderInfo.appendChild(icon);
+                folderInfo.appendChild(name);
+                link.appendChild(folderInfo);
+                link.appendChild(date);
                 listItem.appendChild(link);
                 folderList.appendChild(listItem);
             });
