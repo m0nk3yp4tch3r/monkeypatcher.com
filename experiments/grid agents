@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Musical 2D Agent Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .control-group label {
+            font-size: 12px;
+            color: #ccc;
+        }
+        
+        input, select, button {
+            padding: 8px;
+            border: 1px solid #444;
+            background: #333;
+            color: #fff;
+            border-radius: 4px;
+        }
+        
+        button {
+            cursor: pointer;
+            background: #555;
+        }
+        
+        button:hover {
+            background: #666;
+        }
+        
+        button.active {
+            background: #007acc;
+        }
+        
+        .game-area {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            background: #222;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        .agent-panel {
+            width: 300px;
+            background: #333;
+            padding: 20px;
+            border-radius: 8px;
+            height: fit-content;
+        }
+        
+        .agent-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .agent-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #444;
+            background: #222;
+            padding: 10px;
+            margin-top: 20px;
+        }
+        
+        .agent-item {
+            padding: 8px;
+            border: 1px solid #444;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .agent-item:hover {
+            background: #444;
+        }
+        
+        .agent-item.selected {
+            border-color: #007acc;
+            background: #004080;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background: #444;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .view-toggle {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .navigation-arrows {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        
+        .nav-arrow {
+            width: 30px;
+            height: 30px;
+            background: #555;
+            border: none;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .nav-arrow:hover {
+            background: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Musical 2D Agent Game</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>BPM</label>
+                <input type="number" id="bpm" value="120" min="60" max="200">
+            </div>
+            
+            <div class="control-group">
+                <label>PPQN</label>
+                <input type="number" id="ppqn" value="96" min="24" max="480">
+            </div>
+            
+            <div class="control-group">
+                <label>Size</label>
+                <input type="number" id="gridSize" value="5" min="2" max="10">
+            </div>
+            
+            <div class="control-group">
+                <label>View Mode</label>
+                <div class="view-toggle">
+                    <button id="gridView" class="active">Grid View</button>
+                    <button id="coordView">Coord View</button>
+                </div>
+            </div>
+            
+            <button id="playPause">Play</button>
+            <button id="stop">Stop</button>
+            <button id="clearGrid">Clear Grid</button>
+        </div>
+        
+        <div class="game-area">
+            <div class="canvas-container">
+                <canvas id="gameCanvas" width="600" height="600"></canvas>
+            </div>
+            
+            <div class="agent-panel">
+                <h3>Agent Creator</h3>
+                <div class="agent-form">
+                    <div class="control-group">
+                        <label>Origin X</label>
+                        <input type="number" id="originX" value="0" step="1">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Origin Y</label>
+                        <input type="number" id="originY" value="0" step="1">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Component X</label>
+                        <input type="number" id="componentX" value="1" step="0.1">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Component Y</label>
+                        <input type="number" id="componentY" value="0" step="0.1">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Duration (note length)</label>
+                        <input type="number" id="duration" value="0.25" step="0.125" min="0.125">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Boundary</label>
+                        <select id="boundary">
+                            <option value="remove">Remove</option>
+                            <option value="bounce">Bounce</option>
+                            <option value="infinite">Infinite</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Action</label>
+                        <select id="action">
+                            <option value="sleep">Sleep</option>
+                            <option value="write">Write Note</option>
+                            <option value="read">Read Note</option>
+                        </select>
+                    </div>
+                    
+                    <button id="createAgent">Create Agent</button>
+                    <button id="updateAgent" style="display:none;">Update Agent</button>
+                    <button id="deleteAgent" style="display:none;">Delete Agent</button>
+                </div>
+                
+                <div class="navigation-arrows" id="navigationArrows" style="display:none;">
+                    <button class="nav-arrow" id="prevAgent">←</button>
+                    <button class="nav-arrow" id="nextAgent">→</button>
+                    <span id="agentCounter"></span>
+                </div>
+                
+                <div class="agent-list">
+                    <h4>Active Agents</h4>
+                    <div id="agentListContainer"></div>
+                </div>
+                
+                <div class="status">
+                    <div>Status: <span id="gameStatus">Stopped</span></div>
+                    <div>Current Beat: <span id="currentBeat">0</span></div>
+                    <div>Agents: <span id="agentCount">0</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MusicNote {
+            constructor(pitch = 60, octave = 4, velocity = 127) {
+                this.pitch = pitch; // MIDI note number
+                this.octave = octave;
+                this.velocity = velocity;
+                this.chromatic = this.getChromatic();
+            }
+            
+            getChromatic() {
+                const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                return notes[this.pitch % 12];
+            }
+            
+            getFrequency() {
+                return 440 * Math.pow(2, (this.pitch - 69) / 12);
+            }
+        }
+
+        class MusicAgent {
+            constructor(id, originX, originY, componentX, componentY, duration, boundary, action) {
+                this.id = id;
+                this.originX = originX;
+                this.originY = originY;
+                this.x = originX;
+                this.y = originY;
+                this.componentX = componentX;
+                this.componentY = componentY;
+                this.duration = duration;
+                this.boundary = boundary;
+                this.action = action;
+                this.nextMoveTime = 0;
+                this.active = true;
+                this.color = this.generateColor();
+            }
+            
+            generateColor() {
+                const hue = (this.id * 137.508) % 360; // Golden angle
+                return `hsl(${hue}, 70%, 60%)`;
+            }
+            
+            update(currentTime, game) {
+                if (!this.active || currentTime < this.nextMoveTime) return;
+                
+                // Perform action
+                this.performAction(game);
+                
+                // Move agent
+                this.move(game);
+                
+                // Schedule next move
+                this.nextMoveTime = currentTime + this.duration;
+            }
+            
+            performAction(game) {
+                const gridX = Math.floor(this.x + game.gridSize);
+                const gridY = Math.floor(this.y + game.gridSize);
+                
+                switch (this.action) {
+                    case 'write':
+                        const note = new MusicNote(60 + (gridX + gridY) % 24, 4 + Math.floor((gridX + gridY) / 12));
+                        game.setGridValue(gridX, gridY, note);
+                        game.playNote(note);
+                        break;
+                    case 'read':
+                        const existingNote = game.getGridValue(gridX, gridY);
+                        if (existingNote) {
+                            game.playNote(existingNote);
+                        }
+                        break;
+                    case 'sleep':
+                    default:
+                        // Do nothing
+                        break;
+                }
+            }
+            
+            move(game) {
+                const newX = this.x + this.componentX;
+                const newY = this.y + this.componentY;
+                
+                // Check boundaries - use gridSize as radius from center
+                const maxCoord = game.gridSize;
+                
+                if (Math.abs(newX) > maxCoord || Math.abs(newY) > maxCoord) {
+                    switch (this.boundary) {
+                        case 'remove':
+                            this.active = false;
+                            break;
+                        case 'bounce':
+                            if (Math.abs(newX) > maxCoord) this.componentX *= -1;
+                            if (Math.abs(newY) > maxCoord) this.componentY *= -1;
+                            this.x = Math.max(-maxCoord, Math.min(maxCoord, newX));
+                            this.y = Math.max(-maxCoord, Math.min(maxCoord, newY));
+                            break;
+                        case 'infinite':
+                            this.x = newX > maxCoord ? -maxCoord : newX < -maxCoord ? maxCoord : newX;
+                            this.y = newY > maxCoord ? -maxCoord : newY < -maxCoord ? maxCoord : newY;
+                            break;
+                    }
+                } else {
+                    this.x = newX;
+                    this.y = newY;
+                }
+            }
+        }
+
+        class GameEngine {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.gridSize = 5; // Number of cells from center
+                this.cellSize = 60;
+                this.agents = [];
+                this.agentIdCounter = 0;
+                this.grid = {};
+                this.isPlaying = false;
+                this.currentBeat = 0;
+                this.bpm = 120;
+                this.ppqn = 96;
+                this.viewMode = 'grid'; // 'grid' or 'coord'
+                this.selectedAgent = null;
+                this.selectedCellAgents = [];
+                this.selectedAgentIndex = 0;
+                
+                this.initAudio();
+                this.initEventListeners();
+                this.updateCanvasSize();
+                this.draw();
+            }
+            
+            async initAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.audioContext.createGain();
+                    this.masterGain.gain.value = 0.1;
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    // Simple clock implementation
+                    this.clockInterval = null;
+                } catch (error) {
+                    console.error('Audio initialization failed:', error);
+                }
+            }
+            
+            initEventListeners() {
+                // Controls
+                document.getElementById('bpm').addEventListener('input', (e) => {
+                    this.bpm = parseInt(e.target.value);
+                    this.updateClock();
+                });
+                
+                document.getElementById('ppqn').addEventListener('input', (e) => {
+                    this.ppqn = parseInt(e.target.value);
+                    this.updateClock();
+                });
+                
+                document.getElementById('gridSize').addEventListener('input', (e) => {
+                    this.gridSize = parseInt(e.target.value);
+                    this.updateCanvasSize();
+                    this.draw();
+                });
+                
+                document.getElementById('gridView').addEventListener('click', () => {
+                    this.setViewMode('grid');
+                });
+                
+                document.getElementById('coordView').addEventListener('click', () => {
+                    this.setViewMode('coord');
+                });
+                
+                document.getElementById('playPause').addEventListener('click', () => {
+                    this.togglePlayPause();
+                });
+                
+                document.getElementById('stop').addEventListener('click', () => {
+                    this.stop();
+                });
+                
+                document.getElementById('clearGrid').addEventListener('click', () => {
+                    this.clearGrid();
+                });
+                
+                document.getElementById('createAgent').addEventListener('click', () => {
+                    this.createAgent();
+                });
+                
+                document.getElementById('updateAgent').addEventListener('click', () => {
+                    this.updateSelectedAgent();
+                });
+                
+                document.getElementById('deleteAgent').addEventListener('click', () => {
+                    this.deleteSelectedAgent();
+                });
+                
+                document.getElementById('prevAgent').addEventListener('click', () => {
+                    this.navigateAgent(-1);
+                });
+                
+                document.getElementById('nextAgent').addEventListener('click', () => {
+                    this.navigateAgent(1);
+                });
+                
+                // Canvas click
+                this.canvas.addEventListener('click', (e) => {
+                    this.handleCanvasClick(e);
+                });
+            }
+            
+            setViewMode(mode) {
+                this.viewMode = mode;
+                document.getElementById('gridView').classList.toggle('active', mode === 'grid');
+                document.getElementById('coordView').classList.toggle('active', mode === 'coord');
+                this.draw();
+            }
+            
+            updateCanvasSize() {
+                const totalGridSize = this.gridSize * 2 + 1; // Convert to actual grid dimensions
+                const size = totalGridSize * this.cellSize;
+                this.canvas.width = size;
+                this.canvas.height = size;
+            }
+            
+            updateClock() {
+                if (this.isPlaying) {
+                    this.stop();
+                    this.play();
+                }
+            }
+            
+            play() {
+                if (!this.audioContext) return;
+                
+                this.isPlaying = true;
+                this.audioContext.resume();
+                
+                const beatInterval = (60 / this.bpm / this.ppqn) * 1000 * 4; // Convert to ms
+                
+                this.clockInterval = setInterval(() => {
+                    this.tick();
+                }, beatInterval);
+                
+                document.getElementById('playPause').textContent = 'Pause';
+                document.getElementById('gameStatus').textContent = 'Playing';
+            }
+            
+            pause() {
+                this.isPlaying = false;
+                if (this.clockInterval) {
+                    clearInterval(this.clockInterval);
+                    this.clockInterval = null;
+                }
+                document.getElementById('playPause').textContent = 'Play';
+                document.getElementById('gameStatus').textContent = 'Paused';
+            }
+            
+            stop() {
+                this.pause();
+                this.currentBeat = 0;
+                this.agents.forEach(agent => {
+                    agent.x = agent.originX;
+                    agent.y = agent.originY;
+                    agent.nextMoveTime = 0;
+                    agent.active = true;
+                });
+                document.getElementById('gameStatus').textContent = 'Stopped';
+                this.draw();
+            }
+            
+            togglePlayPause() {
+                if (this.isPlaying) {
+                    this.pause();
+                } else {
+                    this.play();
+                }
+            }
+            
+            tick() {
+                this.currentBeat++;
+                document.getElementById('currentBeat').textContent = this.currentBeat;
+                
+                const currentTime = this.currentBeat / this.ppqn;
+                
+                this.agents.forEach(agent => {
+                    agent.update(currentTime, this);
+                });
+                
+                // Remove inactive agents
+                this.agents = this.agents.filter(agent => agent.active);
+                
+                this.updateAgentList();
+                this.draw();
+            }
+            
+            createAgent() {
+                const originX = parseFloat(document.getElementById('originX').value);
+                const originY = parseFloat(document.getElementById('originY').value);
+                const componentX = parseFloat(document.getElementById('componentX').value);
+                const componentY = parseFloat(document.getElementById('componentY').value);
+                const duration = parseFloat(document.getElementById('duration').value);
+                const boundary = document.getElementById('boundary').value;
+                const action = document.getElementById('action').value;
+                
+                const agent = new MusicAgent(
+                    this.agentIdCounter++,
+                    originX, originY,
+                    componentX, componentY,
+                    duration, boundary, action
+                );
+                
+                this.agents.push(agent);
+                this.updateAgentList();
+                this.draw();
+            }
+            
+            updateSelectedAgent() {
+                if (!this.selectedAgent) return;
+                
+                this.selectedAgent.originX = parseFloat(document.getElementById('originX').value);
+                this.selectedAgent.originY = parseFloat(document.getElementById('originY').value);
+                this.selectedAgent.componentX = parseFloat(document.getElementById('componentX').value);
+                this.selectedAgent.componentY = parseFloat(document.getElementById('componentY').value);
+                this.selectedAgent.duration = parseFloat(document.getElementById('duration').value);
+                this.selectedAgent.boundary = document.getElementById('boundary').value;
+                this.selectedAgent.action = document.getElementById('action').value;
+                
+                this.updateAgentList();
+                this.draw();
+            }
+            
+            deleteSelectedAgent() {
+                if (!this.selectedAgent) return;
+                
+                const index = this.agents.findIndex(agent => agent.id === this.selectedAgent.id);
+                if (index !== -1) {
+                    this.agents.splice(index, 1);
+                    this.selectedAgent = null;
+                    this.hideAgentEditControls();
+                    this.updateAgentList();
+                    this.draw();
+                }
+            }
+            
+            selectAgent(agent) {
+                this.selectedAgent = agent;
+                this.showAgentEditControls();
+                
+                document.getElementById('originX').value = agent.originX;
+                document.getElementById('originY').value = agent.originY;
+                document.getElementById('componentX').value = agent.componentX;
+                document.getElementById('componentY').value = agent.componentY;
+                document.getElementById('duration').value = agent.duration;
+                document.getElementById('boundary').value = agent.boundary;
+                document.getElementById('action').value = agent.action;
+                
+                this.updateAgentList();
+            }
+            
+            showAgentEditControls() {
+                document.getElementById('updateAgent').style.display = 'block';
+                document.getElementById('deleteAgent').style.display = 'block';
+                document.getElementById('createAgent').textContent = 'Create New Agent';
+            }
+            
+            hideAgentEditControls() {
+                document.getElementById('updateAgent').style.display = 'none';
+                document.getElementById('deleteAgent').style.display = 'none';
+                document.getElementById('createAgent').textContent = 'Create Agent';
+                document.getElementById('navigationArrows').style.display = 'none';
+            }
+            
+            navigateAgent(direction) {
+                if (this.selectedCellAgents.length <= 1) return;
+                
+                this.selectedAgentIndex = (this.selectedAgentIndex + direction + this.selectedCellAgents.length) % this.selectedCellAgents.length;
+                this.selectAgent(this.selectedCellAgents[this.selectedAgentIndex]);
+                this.updateAgentCounter();
+            }
+            
+            updateAgentCounter() {
+                if (this.selectedCellAgents.length > 1) {
+                    document.getElementById('agentCounter').textContent = `${this.selectedAgentIndex + 1}/${this.selectedCellAgents.length}`;
+                } else {
+                    document.getElementById('agentCounter').textContent = '';
+                }
+            }
+            
+            handleCanvasClick(e) {
+                if (this.viewMode !== 'coord') return;
+                
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                // Convert to grid coordinates
+                const totalGridSize = this.gridSize * 2 + 1;
+                const gridX = Math.floor(canvasX / this.cellSize) - this.gridSize;
+                const gridY = this.gridSize - Math.floor(canvasY / this.cellSize);
+                
+                // Find agents at this position
+                const agentsAtPosition = this.agents.filter(agent => 
+                    Math.floor(agent.x) === gridX && Math.floor(agent.y) === gridY
+                );
+                
+                if (agentsAtPosition.length > 0) {
+                    this.selectedCellAgents = agentsAtPosition;
+                    this.selectedAgentIndex = 0;
+                    this.selectAgent(agentsAtPosition[0]);
+                    
+                    if (agentsAtPosition.length > 1) {
+                        document.getElementById('navigationArrows').style.display = 'flex';
+                        this.updateAgentCounter();
+                    } else {
+                        document.getElementById('navigationArrows').style.display = 'none';
+                    }
+                } else {
+                    this.selectedAgent = null;
+                    this.selectedCellAgents = [];
+                    this.hideAgentEditControls();
+                    this.updateAgentList();
+                }
+            }
+            
+            updateAgentList() {
+                const container = document.getElementById('agentListContainer');
+                container.innerHTML = '';
+                
+                this.agents.forEach(agent => {
+                    const item = document.createElement('div');
+                    item.className = 'agent-item';
+                    if (this.selectedAgent && agent.id === this.selectedAgent.id) {
+                        item.classList.add('selected');
+                    }
+                    
+                    item.innerHTML = `
+                        <div>Agent ${agent.id} (${agent.action})</div>
+                        <div style="font-size: 11px; color: #aaa;">
+                            Pos: (${agent.x.toFixed(1)}, ${agent.y.toFixed(1)}) | 
+                            Vel: (${agent.componentX}, ${agent.componentY}) | 
+                            Duration: ${agent.duration}
+                        </div>
+                    `;
+                    
+                    item.addEventListener('click', () => {
+                        this.selectAgent(agent);
+                    });
+                    
+                    container.appendChild(item);
+                });
+                
+                document.getElementById('agentCount').textContent = this.agents.length;
+            }
+            
+            setGridValue(x, y, note) {
+                const key = `${x},${y}`;
+                this.grid[key] = note;
+            }
+            
+            getGridValue(x, y) {
+                const key = `${x},${y}`;
+                return this.grid[key];
+            }
+            
+            clearGrid() {
+                this.grid = {};
+                this.draw();
+            }
+            
+            playNote(note) {
+                if (!this.audioContext) return;
+                
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.masterGain);
+                
+                oscillator.frequency.setValueAtTime(note.getFrequency(), this.audioContext.currentTime);
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.3, this.audioContext.currentTime + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.3);
+                
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + 0.3);
+            }
+            
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                if (this.viewMode === 'grid') {
+                    this.drawGridView();
+                } else {
+                    this.drawCoordView();
+                }
+            }
+            
+            drawGridView() {
+                const totalGridSize = this.gridSize * 2 + 1;
+                
+                // Draw grid
+                this.ctx.strokeStyle = '#444';
+                this.ctx.lineWidth = 1;
+                
+                for (let i = 0; i <= totalGridSize; i++) {
+                    const pos = i * this.cellSize;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos, 0);
+                    this.ctx.lineTo(pos, this.canvas.height);
+                    this.ctx.stroke();
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, pos);
+                    this.ctx.lineTo(this.canvas.width, pos);
+                    this.ctx.stroke();
+                }
+                
+                // Draw grid values
+                this.ctx.font = '12px Arial';
+                this.ctx.textAlign = 'center';
+                
+                for (let key in this.grid) {
+                    const [x, y] = key.split(',').map(Number);
+                    const note = this.grid[key];
+                    
+                    const canvasX = (x + this.gridSize) * this.cellSize + this.cellSize / 2;
+                    const canvasY = (y + this.gridSize) * this.cellSize + this.cellSize / 2;
+                    
+                    this.ctx.fillStyle = '#ffff00';
+                    this.ctx.fillRect(canvasX - 15, canvasY - 8, 30, 16);
+                    this.ctx.fillStyle = '#000';
+                    this.ctx.fillText(note.chromatic + note.octave, canvasX, canvasY + 3);
+                }
+                
+                // Draw agents
+                this.agents.forEach(agent => {
+                    const canvasX = (agent.x + this.gridSize) * this.cellSize + this.cellSize / 2;
+                    const canvasY = (agent.y + this.gridSize) * this.cellSize + this.cellSize / 2;
+                    
+                    this.ctx.fillStyle = agent.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(canvasX, canvasY, 8, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    if (this.selectedAgent && agent.id === this.selectedAgent.id) {
+                        this.ctx.strokeStyle = '#fff';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.stroke();
+                    }
+                });
+            }
+            
+            drawCoordView() {
+                const totalGridSize = this.gridSize * 2 + 1;
+                
+                // Draw coordinate grid
+                this.ctx.strokeStyle = '#333';
+                this.ctx.lineWidth = 1;
+                
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+                
+                for (let i = 0; i <= totalGridSize; i++) {
+                    const pos = i * this.cellSize;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos, 0);
+                    this.ctx.lineTo(pos, this.canvas.height);
+                    this.ctx.stroke();
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, pos);
+                    this.ctx.lineTo(this.canvas.width, pos);
+                    this.ctx.stroke();
+                }
+                
+                // Draw axes
+                this.ctx.strokeStyle = '#666';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(centerX, 0);
+                this.ctx.lineTo(centerX, this.canvas.height);
+                this.ctx.stroke();
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, centerY);
+                this.ctx.lineTo(this.canvas.width, centerY);
+                this.ctx.stroke();
+                
+                // Draw coordinate labels
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '10px Arial';
+                this.ctx.textAlign = 'center';
+                
+                for (let i = -this.gridSize; i <= this.gridSize; i++) {
+                    const x = centerX + i * this.cellSize;
+                    const y = centerY - i * this.cellSize;
+                    
+                    if (i !== 0) {
+                        this.ctx.fillText(i.toString(), x, centerY - 5);
+                        this.ctx.fillText(i.toString(), centerX - 15, y + 3);
+                    }
+                }
+                
+                // Draw grid values
+                this.ctx.font = '12px Arial';
+                this.ctx.textAlign = 'center';
+                
+                for (let key in this.grid) {
+                    const [x, y] = key.split(',').map(Number);
+                    const note = this.grid[key];
+                    
+                    const canvasX = centerX + (x - this.gridSize) * this.cellSize;
+                    const canvasY = centerY - (y - this.gridSize) * this.cellSize;
+                    
+                    this.ctx.fillStyle = '#ffff00';
+                    this.ctx.fillRect(canvasX - 15, canvasY - 8, 30, 16);
+                    this.ctx.fillStyle = '#000';
+                    this.ctx.fillText(note.chromatic + note.octave, canvasX, canvasY + 3);
+                }
+                
+                // Draw agents
+                this.agents.forEach(agent => {
+                    const canvasX = centerX + agent.x * this.cellSize;
+                    const canvasY = centerY - agent.y * this.cellSize;
+                    
+                    this.ctx.fillStyle = agent.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(canvasX, canvasY, 8, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    if (this.selectedAgent && agent.id === this.selectedAgent.id) {
+                        this.ctx.strokeStyle = '#fff';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.stroke();
+                    }
+                    
+                    // Draw velocity vector
+                    if (this.viewMode === 'coord') {
+                        const vectorEndX = canvasX + agent.componentX * this.cellSize * 0.8;
+                        const vectorEndY = canvasY - agent.componentY * this.cellSize * 0.8;
+                        
+                        this.ctx.strokeStyle = agent.color;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(canvasX, canvasY);
+                        this.ctx.lineTo(vectorEndX, vectorEndY);
+                        this.ctx.stroke();
+                        
+                        // Draw arrowhead
+                        const angle = Math.atan2(-(agent.componentY * this.cellSize * 0.8), agent.componentX * this.cellSize * 0.8);
+                        const arrowLength = 8;
+                        
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(vectorEndX, vectorEndY);
+                        this.ctx.lineTo(
+                            vectorEndX - arrowLength * Math.cos(angle - Math.PI / 6),
+                            vectorEndY - arrowLength * Math.sin(angle - Math.PI / 6)
+                        );
+                        this.ctx.moveTo(vectorEndX, vectorEndY);
+                        this.ctx.lineTo(
+                            vectorEndX - arrowLength * Math.cos(angle + Math.PI / 6),
+                            vectorEndY - arrowLength * Math.sin(angle + Math.PI / 6)
+                        );
+                        this.ctx.stroke();
+                    }
+                });
+            }
+        }
+
+        // Initialize the game
+        const game = new GameEngine();
+    </script>
+</body>
+</html>
