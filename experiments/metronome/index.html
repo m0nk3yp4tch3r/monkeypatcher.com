@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AudioWorklet Metronome</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 2rem;
+    background: #222;
+    color: #eee;
+  }
+  label {
+    display: inline-block;
+    margin: 0 0.5rem 0.5rem 0;
+    font-weight: bold;
+  }
+  input[type=number] {
+    width: 60px;
+    padding: 0.2rem 0.3rem;
+    font-size: 1rem;
+    border-radius: 4px;
+    border: none;
+    margin-right: 1rem;
+  }
+  button {
+    font-size: 1.1rem;
+    padding: 0.5rem 1rem;
+    margin: 0.5rem;
+    background: #444;
+    border: none;
+    color: #eee;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  button:hover {
+    background: #666;
+  }
+  canvas {
+    display: block;
+    margin: 1rem auto;
+    background: #111;
+    border-radius: 50%;
+    box-shadow: 0 0 15px #000 inset;
+  }
+  #counters {
+    font-size: 1.2rem;
+    margin-top: 0.5rem;
+  }
+  #counters span {
+    margin: 0 1rem;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <h1>AudioWorklet Metronome</h1>
+
+  <div>
+    <label for="bpmInput">BPM:</label>
+    <input id="bpmInput" type="number" min="20" max="300" value="120" step="1" />
+    <label for="ppqnInput">PPQN:</label>
+    <input id="ppqnInput" type="number" min="6" max="1920" value="24" step="1" />
+  </div>
+
+  <div>
+    <button id="playPauseBtn">Play</button>
+    <button id="stopBtn">Stop</button>
+  </div>
+
+  <canvas id="progressCanvas" width="250" height="250"></canvas>
+  <div id="counters">
+    <span id="tickCount">Tick: 0</span>
+    <span id="beatCount">Beat: 0</span>
+  </div>
+
+  <script type="text/plain" id="clock-worklet">
+    class ClockProcessor extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        this.bpm = 120;
+        this.ppqn = 24;
+        this.sampleRate = sampleRate;
+        this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+        this.sampleCounter = 0;
+        this.running = false;
+        this.port.onmessage = (e) => {
+          const data = e.data;
+          if (data.type === 'start') {
+            this.running = true;
+          } else if (data.type === 'stop') {
+            this.running = false;
+            this.sampleCounter = 0;
+          } else if (data.type === 'setBPM') {
+            this.bpm = data.bpm;
+            this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+          } else if (data.type === 'setPPQN') {
+            this.ppqn = data.ppqn;
+            this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+          }
+        };
+      }
+      process(inputs, outputs, parameters) {
+        if (!this.running) return true;
+        const quantumSize = 128;
+        this.sampleCounter += quantumSize;
+        while (this.sampleCounter >= this.samplesPerTick) {
+          this.sampleCounter -= this.samplesPerTick;
+          this.port.postMessage('tick');
+        }
+        return true;
+      }
+    }
+    registerProcessor('clock', ClockProcessor);
+  </script>
+
+  <script>
+    (async () => {
+      const bpmInput = document.getElementById('bpmInput');
+      const ppqnInput = document.getElementById('ppqnInput');
+      const playPauseBtn = document.getElementById('playPauseBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const canvas = document.getElementById('progressCanvas');
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const maxLedRadius = 15;
+
+      const tickCountEl = document.getElementById('tickCount');
+      const beatCountEl = document.getElementById('beatCount');
+
+      const workletCode = document.getElementById('clock-worklet').textContent;
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(blob);
+
+      const audioCtx = new AudioContext();
+
+      await audioCtx.audioWorklet.addModule(workletUrl);
+
+      const clockNode = new AudioWorkletNode(audioCtx, 'clock');
+      clockNode.connect(audioCtx.destination);
+
+      let running = false;
+      let tickCount = 0;
+      let beatCount = 0;
+      let beatPulse = 0;  // For center expanding beat pulse
+      let ppqn = 24;  // Default PPQN
+
+      clockNode.port.onmessage = (event) => {
+        if (event.data === 'tick') {
+          tickCount++;
+          tickCountEl.textContent = `Tick: ${tickCount}`;
+          if (tickCount % ppqn === 0) {
+            beatCount++;
+            beatCountEl.textContent = `Beat: ${beatCount}`;
+            beatPulse = 1;  // Reset pulse for center boom
+            playBeatBeep();
+          }
+        }
+      };
+
+      function playBeatBeep() {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 1320;
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.07);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.07);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, width, height);
+
+        // Fixed ringRadius for simplicity (could be dynamic if you want)
+        const ringRadius = 100;
+
+        // Background ring behind LEDs / ring
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, ringRadius + maxLedRadius + 10, 0, 2 * Math.PI);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+
+        const currentTick = tickCount % ppqn;
+
+        // Calculate dynamic LED radius to fit all LEDs without overlap (only for small ppqn)
+        const spacingAngle = (2 * Math.PI) / ppqn;
+        const maxLedDiameter = 2 * ringRadius * Math.sin(spacingAngle / 2) * 0.9;
+        const ledRadiusDynamic = Math.min(maxLedRadius, maxLedDiameter / 2, 15);
+
+        if (ppqn <= 128) {
+          // Draw individual LEDs
+          for (let i = 0; i < ppqn; i++) {
+            const angle = (i / ppqn) * 2 * Math.PI - Math.PI / 2;
+            const x = centerX + ringRadius * Math.cos(angle);
+            const y = centerY + ringRadius * Math.sin(angle);
+
+            ctx.beginPath();
+            ctx.arc(x, y, ledRadiusDynamic, 0, 2 * Math.PI);
+
+            if (i === currentTick) {
+              ctx.fillStyle = 'rgba(0, 170, 255, 0.9)';
+
+            } else {
+              ctx.fillStyle = '#444';
+              ctx.shadowBlur = 0;
+            }
+            ctx.fill();
+          }
+        } else {
+          // Draw thick ring progress instead of individual LEDs
+          const thickness = 5;  // thickness of the ring
+          const startAngle = -Math.PI / 2;  // start at top
+
+          // Background dim ring
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, ringRadius, 0, 2 * Math.PI);
+          ctx.lineWidth = thickness;
+          ctx.strokeStyle = '#444';
+          ctx.shadowBlur = 0;
+          ctx.stroke();
+
+          // Active progress arc for current tick
+          const progressAngle = (currentTick / ppqn) * 2 * Math.PI;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, ringRadius, startAngle, startAngle + progressAngle+2);
+          ctx.lineWidth = thickness;
+          ctx.strokeStyle = 'rgba(0, 170, 255, 0.9)';
+          ctx.shadowColor = 'rgba(0, 170, 255, 0.9)';
+
+          ctx.stroke();
+        }
+
+        // Center circle (background)
+        // Adjusted to not shrink too much with ppqn
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, ringRadius - maxLedRadius - 10, 0, 2 * Math.PI);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+
+        // Draw center expanding pulse on beat only (no rim or LED emphasis)
+        if (beatPulse > 0) {
+          const maxPulseRadius = ringRadius - maxLedRadius - 10;
+          const pulseRadius = maxPulseRadius * (1 - beatPulse);
+          const alpha = beatPulse * 0.5;
+
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, pulseRadius, 0, 2 * Math.PI);
+          ctx.strokeStyle = `rgba(255, 140, 0, ${alpha})`;
+          ctx.lineWidth = 6 * beatPulse;
+          ctx.shadowColor = `rgba(255, 140, 0, ${alpha})`;
+          ctx.shadowBlur = 20 * alpha;
+          ctx.stroke();
+
+          beatPulse -= 0.03;
+          if (beatPulse < 0) beatPulse = 0;
+        }
+
+        requestAnimationFrame(draw);
+      }
+
+      draw();
+
+      playPauseBtn.addEventListener('click', async () => {
+        if (!running) {
+          if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+          }
+          clockNode.port.postMessage({ type: 'start' });
+          running = true;
+          playPauseBtn.textContent = 'Pause';
+          tickCount = 0;
+          beatCount = 0;
+          tickCountEl.textContent = `Tick: ${tickCount}`;
+          beatCountEl.textContent = `Beat: ${beatCount}`;
+        } else {
+          clockNode.port.postMessage({ type: 'stop' });
+          running = false;
+          playPauseBtn.textContent = 'Play';
+        }
+      });
+
+      stopBtn.addEventListener('click', () => {
+        clockNode.port.postMessage({ type: 'stop' });
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        tickCount = 0;
+        beatCount = 0;
+        tickCountEl.textContent = `Tick: ${tickCount}`;
+        beatCountEl.textContent = `Beat: ${beatCount}`;
+      });
+
+      bpmInput.addEventListener('change', () => {
+        const bpm = Math.min(300, Math.max(20, Number(bpmInput.value)));
+        bpmInput.value = bpm;
+        clockNode.port.postMessage({ type: 'setBPM', bpm });
+      });
+
+      ppqnInput.addEventListener('change', () => {
+        ppqn = Math.min(1920, Math.max(1, Number(ppqnInput.value)));
+        ppqnInput.value = ppqn;
+        clockNode.port.postMessage({ type: 'setPPQN', ppqn });
+      });
+    })();
+  </script>
+</body>
+</html>
