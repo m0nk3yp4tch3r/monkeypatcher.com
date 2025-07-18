@@ -76,47 +76,72 @@
     <span id="beatCount">Beat: 0</span>
   </div>
 
-  <script type="text/plain" id="clock-worklet">
-    class ClockProcessor extends AudioWorkletProcessor {
-      constructor() {
-        super();
-        this.bpm = 120;
-        this.ppqn = 24;
-        this.sampleRate = sampleRate;
-        this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
-        this.sampleCounter = 0;
-        this.running = false;
-        this.port.onmessage = (e) => {
-          const data = e.data;
-          if (data.type === 'start') {
-            this.running = true;
-          } else if (data.type === 'stop') {
-            this.running = false;
-            this.sampleCounter = 0;
-          } else if (data.type === 'setBPM') {
-            this.bpm = data.bpm;
-            this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
-          } else if (data.type === 'setPPQN') {
-            this.ppqn = data.ppqn;
-            this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
-          }
-        };
-      }
-      process(inputs, outputs, parameters) {
-        if (!this.running) return true;
-        const quantumSize = 128;
-        this.sampleCounter += quantumSize;
-        while (this.sampleCounter >= this.samplesPerTick) {
-          this.sampleCounter -= this.samplesPerTick;
-          this.port.postMessage('tick');
+  <!-- Clock worklet code inside template -->
+  <template class="worklet-clock">
+    <script>
+      class ClockProcessor extends AudioWorkletProcessor {
+        constructor() {
+          super();
+          this.bpm = 120;
+          this.ppqn = 24;
+          this.sampleRate = sampleRate;
+          this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+          this.sampleCounter = 0;
+          this.running = false;
+          this.port.onmessage = (e) => {
+            const data = e.data;
+            if (data.type === 'start') {
+              this.running = true;
+            } else if (data.type === 'stop') {
+              this.running = false;
+              this.sampleCounter = 0;
+            } else if (data.type === 'setBPM') {
+              this.bpm = data.bpm;
+              this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+            } else if (data.type === 'setPPQN') {
+              this.ppqn = data.ppqn;
+              this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
+            }
+          };
         }
-        return true;
+        process(inputs, outputs, parameters) {
+          if (!this.running) return true;
+          const quantumSize = 128;
+          this.sampleCounter += quantumSize;
+          while (this.sampleCounter >= this.samplesPerTick) {
+            this.sampleCounter -= this.samplesPerTick;
+            this.port.postMessage('tick');
+          }
+          return true;
+        }
       }
-    }
-    registerProcessor('clock', ClockProcessor);
-  </script>
+      registerProcessor('clock', ClockProcessor);
+    </script>
+  </template>
 
   <script>
+    class Clock {
+      constructor(ac, callback) {
+        this.ac = ac;
+        this.callback = callback;
+      }
+      async start() {
+        await this.ac.resume();
+        const template = document.querySelector('template.worklet-clock');
+        const script = template.content.querySelector('script');
+        const workletCode = script.textContent.trim();
+        const dataURL = `data:text/javascript;base64,${btoa(workletCode)}`;
+        await this.ac.audioWorklet.addModule(dataURL);
+        this.node = new AudioWorkletNode(this.ac, "clock");
+        this.node.connect(this.ac.destination);
+        this.node.port.onmessage = (e) => this.callback(e.data);
+        this.node.port.postMessage({ type: "start" });
+      }
+      stop() {
+        this.node?.port.postMessage({ type: "stop" });
+      }
+    }
+
     (async () => {
       const bpmInput = document.getElementById('bpmInput');
       const ppqnInput = document.getElementById('ppqnInput');
@@ -135,34 +160,8 @@
 
       const audioCtx = new AudioContext();
 
-      // init audio context
-      document.addEventListener("click", function firstClick() {
-        ctx.resume(); // autoply policy
-        document.removeEventListener("click", firstClick);
-      });
-      
-      // Get AudioWorkletProcessor code from script tag
-      const workletCode = document.getElementById('clock-worklet').textContent;
-      
-      // Encode as base64 for use in data URL
-      const base64Code = btoa(unescape(encodeURIComponent(workletCode)));
-      const workletUrl = `data:application/javascript;base64,${base64Code}`;
-      
-      // Load AudioWorklet module
-      await audioCtx.audioWorklet.addModule(workletUrl);
-      
-      // Create AudioWorkletNode
-      const clockNode = new AudioWorkletNode(audioCtx, 'clock');
-      clockNode.connect(audioCtx.destination);
-
-      let running = false;
-      let tickCount = 0;
-      let beatCount = 0;
-      let beatPulse = 0;  // For center expanding beat pulse
-      let ppqn = 24;  // Default PPQN
-
-      clockNode.port.onmessage = (event) => {
-        if (event.data === 'tick') {
+      const clock = new Clock(audioCtx, (data) => {
+        if (data === 'tick') {
           tickCount++;
           tickCountEl.textContent = `Tick: ${tickCount}`;
           if (tickCount % ppqn === 0) {
@@ -172,7 +171,13 @@
             playBeatBeep();
           }
         }
-      };
+      });
+
+      let running = false;
+      let tickCount = 0;
+      let beatCount = 0;
+      let beatPulse = 0;  // For center expanding beat pulse
+      let ppqn = 24;  // Default PPQN
 
       function playBeatBeep() {
         const osc = audioCtx.createOscillator();
@@ -217,7 +222,6 @@
 
             if (i === currentTick) {
               ctx.fillStyle = 'rgba(0, 170, 255, 0.9)';
-
             } else {
               ctx.fillStyle = '#444';
               ctx.shadowBlur = 0;
@@ -240,7 +244,7 @@
           // Active progress arc for current tick
           const progressAngle = (currentTick / ppqn) * 2 * Math.PI;
           ctx.beginPath();
-          ctx.arc(centerX, centerY, ringRadius, startAngle, startAngle + progressAngle+2);
+          ctx.arc(centerX, centerY, ringRadius, startAngle, startAngle + progressAngle + 2);
           ctx.lineWidth = thickness;
           ctx.strokeStyle = 'rgba(0, 170, 255, 0.9)';
           ctx.shadowColor = 'rgba(0, 170, 255, 0.9)';
@@ -283,7 +287,7 @@
           if (audioCtx.state === 'suspended') {
             await audioCtx.resume();
           }
-          clockNode.port.postMessage({ type: 'start' });
+          await clock.start();
           running = true;
           playPauseBtn.textContent = 'Pause';
           tickCount = 0;
@@ -291,14 +295,14 @@
           tickCountEl.textContent = `Tick: ${tickCount}`;
           beatCountEl.textContent = `Beat: ${beatCount}`;
         } else {
-          clockNode.port.postMessage({ type: 'stop' });
+          clock.stop();
           running = false;
           playPauseBtn.textContent = 'Play';
         }
       });
 
       stopBtn.addEventListener('click', () => {
-        clockNode.port.postMessage({ type: 'stop' });
+        clock.stop();
         running = false;
         playPauseBtn.textContent = 'Play';
         tickCount = 0;
@@ -310,13 +314,21 @@
       bpmInput.addEventListener('change', () => {
         const bpm = Math.min(300, Math.max(20, Number(bpmInput.value)));
         bpmInput.value = bpm;
-        clockNode.port.postMessage({ type: 'setBPM', bpm });
+        clock.node?.port.postMessage({ type: 'setBPM', bpm });
       });
 
       ppqnInput.addEventListener('change', () => {
         ppqn = Math.min(1920, Math.max(1, Number(ppqnInput.value)));
         ppqnInput.value = ppqn;
-        clockNode.port.postMessage({ type: 'setPPQN', ppqn });
+        clock.node?.port.postMessage({ type: 'setPPQN', ppqn });
+      });
+
+      // Autoplay policy fix: resume AudioContext on first click
+      document.addEventListener('click', function firstClick() {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        document.removeEventListener('click', firstClick);
       });
     })();
   </script>
