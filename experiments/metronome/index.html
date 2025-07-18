@@ -62,7 +62,7 @@
     <label for="bpmInput">BPM:</label>
     <input id="bpmInput" type="number" min="20" max="300" value="120" step="1" />
     <label for="ppqnInput">PPQN:</label>
-    <input id="ppqnInput" type="number" min="6" max="1920" value="24" step="1" />
+    <input id="ppqnInput" type="number" min="6" max="1920" value="96" step="1" />
     <label for="muteCheckbox">Mute:</label>
     <input type="checkbox" id="muteCheckbox" />
   </div>
@@ -89,7 +89,7 @@
       constructor() {
         super();
         this.bpm = 120;
-        this.ppqn = 24;
+        this.ppqn = 96;
         this.sampleRate = sampleRate;
         this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
         this.sampleCounter = 0;
@@ -171,7 +171,7 @@
       let tickCount = 0;
       let beatCount = 0;
       let beatPulse = 0;  // For center expanding beat pulse
-      let ppqn = 24;  // Default PPQN
+      let ppqn = 96;  // Default PPQN
 
       let animationFrameId;
 
