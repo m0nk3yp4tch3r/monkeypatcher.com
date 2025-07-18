@@ -63,6 +63,8 @@
     <input id="bpmInput" type="number" min="20" max="300" value="120" step="1" />
     <label for="ppqnInput">PPQN:</label>
     <input id="ppqnInput" type="number" min="6" max="1920" value="24" step="1" />
+    <label for="muteCheckbox">Mute:</label>
+    <input type="checkbox" id="muteCheckbox" />
   </div>
 
   <div>
@@ -75,9 +77,15 @@
     <span id="tickCount">Tick: 0</span>
     <span id="beatCount">Beat: 0</span>
   </div>
+  <div id="timing-info">
+    <div>
+      <div id="samplesPerTick">Samples/PPQN: 0</div>
+      <span id="correctionTime">Corr: 0.000</span>s
+    </div>
+  </div>
 
   <script type="text/plain" id="clock-worklet">
-    class ClockProcessor extends AudioWorkletProcessor {
+  class ClockProcessor extends AudioWorkletProcessor {
       constructor() {
         super();
         this.bpm = 120;
@@ -86,10 +94,13 @@
         this.samplesPerTick = (60 / this.bpm / this.ppqn) * this.sampleRate;
         this.sampleCounter = 0;
         this.running = false;
+
         this.port.onmessage = (e) => {
           const data = e.data;
           if (data.type === 'start') {
             this.running = true;
+            this.startTime = currentTime;
+            this.sampleCounter = 0;
           } else if (data.type === 'stop') {
             this.running = false;
             this.sampleCounter = 0;
@@ -102,13 +113,23 @@
           }
         };
       }
+      
       process(inputs, outputs, parameters) {
         if (!this.running) return true;
-        const quantumSize = 128;
-        this.sampleCounter += quantumSize;
+        
+        const quantumStartTime = currentTime;
+        this.sampleCounter += 128; // Quantum size in samples
+        
         while (this.sampleCounter >= this.samplesPerTick) {
           this.sampleCounter -= this.samplesPerTick;
-          this.port.postMessage('tick');
+          // Samples from start of block to tick divided by sampleRate gives us the time in seconds
+          const tickTime = quantumStartTime + (this.samplesPerTick - this.sampleCounter) / this.sampleRate;
+          this.port.postMessage({
+            time: tickTime,
+            audioContextTime: currentTime,
+            timeCorrection: tickTime - currentTime,
+            samplesPerTick: this.samplesPerTick
+          });
         }
         return true;
       }
@@ -132,6 +153,8 @@
 
       const tickCountEl = document.getElementById('tickCount');
       const beatCountEl = document.getElementById('beatCount');
+      const correctionTimeEl = document.getElementById('correctionTime');
+      const samplesPerTickEl = document.getElementById('samplesPerTick');
 
       const workletCode = document.getElementById('clock-worklet').textContent;
       const blob = new Blob([workletCode], { type: 'application/javascript' });
@@ -150,32 +173,38 @@
       let beatPulse = 0;  // For center expanding beat pulse
       let ppqn = 24;  // Default PPQN
 
+      let animationFrameId;
+
       clockNode.port.onmessage = (event) => {
-        if (event.data === 'tick') {
           tickCount++;
           tickCountEl.textContent = `Tick: ${tickCount}`;
+
           if (tickCount % ppqn === 0) {
             beatCount++;
             beatCountEl.textContent = `Beat: ${beatCount}`;
-            beatPulse = 1;  // Reset pulse for center boom
-            playBeatBeep();
+            beatPulse = 1;  // Reset beat pulse radius
+            scheduleBeatBeep(event.data.time);
+            if(event.data.time != event.data.audioContextTime) {
+              samplesPerTickEl.textContent = `Samples/PPQN: ${event.data.samplesPerTick.toFixed(0)}`;
+              correctionTimeEl.textContent = `Corr: ${event.data.timeCorrection.toFixed(3)}`;
+            }
           }
-        }
       };
 
-      function playBeatBeep() {
+      function scheduleBeatBeep(when) {
+        if (muteCheckbox.checked) return;
+        
         const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = 1320;
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.07);
-        osc.connect(gain).connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.07);
+        osc.start(when + 0.1);
+        osc.stop(when + 0.15);
+        osc.connect(audioCtx.destination);
       }
 
       function draw() {
+        requestAnimationFrame(draw);
+
+        if (!running) return;
+
         ctx.clearRect(0, 0, width, height);
 
         // Fixed ringRadius for simplicity (could be dynamic if you want)
@@ -194,43 +223,19 @@
         const maxLedDiameter = 2 * ringRadius * Math.sin(spacingAngle / 2) * 0.9;
         const ledRadiusDynamic = Math.min(maxLedRadius, maxLedDiameter / 2, 15);
 
-        if (ppqn <= 128) {
-          // Draw individual LEDs
-          for (let i = 0; i < ppqn; i++) {
-            const angle = (i / ppqn) * 2 * Math.PI - Math.PI / 2;
-            const x = centerX + ringRadius * Math.cos(angle);
-            const y = centerY + ringRadius * Math.sin(angle);
-
-            ctx.beginPath();
-            ctx.arc(x, y, ledRadiusDynamic, 0, 2 * Math.PI);
-
-            if (i === currentTick) {
-              ctx.fillStyle = 'rgba(0, 170, 255, 0.9)';
-
-            } else {
-              ctx.fillStyle = '#444';
-              ctx.shadowBlur = 0;
-            }
-            ctx.fill();
-          }
-        } else {
-        // === Dynamic ring visuals ===
-        const ringRadius = 100;
         const startAngle = -Math.PI / 2;
         const rawProgress = currentTick / ppqn;
         const currentAngle = startAngle + rawProgress * 2 * Math.PI;
 
-              // Dynamic line thickness: thinner at higher PPQN
+        // Dynamic line thickness: thinner at higher PPQN
         const minThickness = 1.2;
-        const maxThickness = 4.5;
+        const maxThickness = 6.0;
         const thickness = maxThickness - (ppqn / 1920) * (maxThickness - minThickness);
-
 
         // Glow trail config
         const trailLength = Math.PI / thickness; 
         const trailStart = currentAngle - trailLength;
         const trailEnd = currentAngle;
-
   
         // Gradient for trailing glow
         const xStart = centerX + ringRadius * Math.cos(trailStart);
@@ -256,8 +261,7 @@
         ctx.strokeStyle = gradient;
         ctx.lineCap = 'round';
         ctx.stroke();
-        }
-
+        
         // Center circle (background)
         // Adjusted to not shrink too much with ppqn
         ctx.beginPath();
@@ -283,10 +287,9 @@
           if (beatPulse < 0) beatPulse = 0;
         }
 
-        requestAnimationFrame(draw);
       }
 
-      draw();
+     draw();
 
       playPauseBtn.addEventListener('click', async () => {
         if (!running) {
@@ -296,8 +299,6 @@
           clockNode.port.postMessage({ type: 'start' });
           running = true;
           playPauseBtn.textContent = 'Pause';
-          tickCount = 0;
-          beatCount = 0;
           tickCountEl.textContent = `Tick: ${tickCount}`;
           beatCountEl.textContent = `Beat: ${beatCount}`;
         } else {
@@ -308,6 +309,10 @@
       });
 
       stopBtn.addEventListener('click', () => {
+        cancelAnimationFrame(animationFrameId);
+        ctx.clearRect(0, 0, width, height);
+
+        
         clockNode.port.postMessage({ type: 'stop' });
         running = false;
         playPauseBtn.textContent = 'Play';
@@ -315,6 +320,8 @@
         beatCount = 0;
         tickCountEl.textContent = `Tick: ${tickCount}`;
         beatCountEl.textContent = `Beat: ${beatCount}`;
+        samplesPerTickEl.textContent = `Samples/PPQN: 0`;
+        correctionTimeEl.textContent = `Corr: 0`;
       });
 
       bpmInput.addEventListener('change', () => {
