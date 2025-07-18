@@ -134,6 +134,12 @@
       const beatCountEl = document.getElementById('beatCount');
 
       const audioCtx = new AudioContext();
+
+      // init audio context
+      document.addEventListener("click", function firstClick() {
+        ctx.resume(); // autoply policy
+        document.removeEventListener("click", firstClick);
+      });
       
       // Get AudioWorkletProcessor code from script tag
       const workletCode = document.getElementById('clock-worklet').textContent;
