@@ -134,8 +134,7 @@
       const beatCountEl = document.getElementById('beatCount');
 
       const workletCode = document.getElementById('clock-worklet').textContent;
-      const blob = new Blob([workletCode], { type: 'application/javascript' });
-      const workletUrl = URL.createObjectURL(blob);
+      const dataURL = `data:text/javascript;base64,${btoa(workletCode)}`;
 
       const audioCtx = new AudioContext();
 
