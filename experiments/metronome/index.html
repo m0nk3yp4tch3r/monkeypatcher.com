@@ -133,13 +133,19 @@
       const tickCountEl = document.getElementById('tickCount');
       const beatCountEl = document.getElementById('beatCount');
 
-      const workletCode = document.getElementById('clock-worklet').textContent;
-      const dataURL = `data:text/javascript;base64,${btoa(workletCode)}`;
-
       const audioCtx = new AudioContext();
-
+      
+      // Get AudioWorkletProcessor code from script tag
+      const workletCode = document.getElementById('clock-worklet').textContent;
+      
+      // Encode as base64 for use in data URL
+      const base64Code = btoa(unescape(encodeURIComponent(workletCode)));
+      const workletUrl = `data:application/javascript;base64,${base64Code}`;
+      
+      // Load AudioWorklet module
       await audioCtx.audioWorklet.addModule(workletUrl);
-
+      
+      // Create AudioWorkletNode
       const clockNode = new AudioWorkletNode(audioCtx, 'clock');
       clockNode.connect(audioCtx.destination);
 
