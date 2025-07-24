@@ -1,0 +1,1500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VibeSynth</title>
+  <style>
+    body { 
+      font-family: 'Arial', sans-serif; 
+      padding: 2rem; 
+      background: #1a1a1a; 
+      color: #fff;
+      margin: 0;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 2rem;
+      color: #fff;
+    }
+    
+    .controls { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
+      gap: 2rem; 
+      margin-bottom: 3rem;
+    }
+    
+    .control { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center;
+    }
+    
+    .control-label { 
+      font-size: 0.8rem; 
+      margin-bottom: 1rem; 
+      text-align: center;
+      color: #ccc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Knob styles */
+    .knob-control {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .knob-input {
+      position: relative;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #333, #111);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.6), inset 0 1px 3px rgba(255,255,255,0.1);
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+      outline: none;
+      margin-bottom: 0.5rem;
+    }
+
+    .knob-input::-webkit-slider-track {
+      background: transparent;
+      border: none;
+      height: 50px;
+      border-radius: 50%;
+    }
+
+    .knob-input::-moz-range-track {
+      background: transparent;
+      border: none;
+      height: 50px;
+      border-radius: 50%;
+    }
+
+    .knob-input::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 0;
+      height: 0;
+      background: transparent;
+      border: none;
+    }
+
+    .knob-input::-moz-range-thumb {
+      width: 0;
+      height: 0;
+      background: transparent;
+      border: none;
+    }
+
+    /* Radial indicator line */
+    .knob-input::before {
+      content: '';
+      position: absolute;
+      width: 2px;
+      height: 14px;
+      background: #00ff88;
+      top: 5px;
+      left: 24px;
+      transform-origin: 1px 20px;
+      transform: rotate(calc(var(--knob-angle, -135) * 1deg));
+      border-radius: 1px;
+      box-shadow: 0 0 4px rgba(0,255,136,0.5);
+      pointer-events: none;
+    }
+
+    /* Linear shadow indicator track */
+    .knob-control::before {
+      content: '';
+      position: absolute;
+      top: -15px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60px;
+      height: 3px;
+      background: #333;
+      border-radius: 2px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    /* Linear shadow indicator fill */
+    .knob-control::after {
+      content: '';
+      position: absolute;
+      top: -15px;
+      left: calc(50% - 30px);
+      height: 3px;
+      width: calc(60px * var(--progress, 0));
+      background: #00ff88;
+      border-radius: 2px;
+      box-shadow: 0 0 4px rgba(0,255,136,0.6);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .knob-input:active ~ .knob-control::before,
+    .knob-input:active ~ .knob-control::after,
+    .knob-input:focus ~ .knob-control::before,
+    .knob-input:focus ~ .knob-control::after,
+    .knob-control:hover::before,
+    .knob-control:hover::after {
+      opacity: 1;
+    }
+
+    .knob-value {
+      position: relative;
+      font-size: 0.7rem;
+      color: #00ff88;
+      text-align: center;
+      min-height: 1rem;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      width: 60px;
+      padding: 2px;
+      cursor: text;
+    }
+
+    .knob-value:focus {
+      outline: none;
+      border-color: #00ff88;
+      background: #1a1a1a;
+    }
+
+    .knob-value:hover {
+      border-color: #00ff88;
+      opacity: 0.8;
+    }
+
+    /* Small control buttons */
+    .control-buttons {
+      display: flex;
+      gap: 2px;
+      margin-top: 4px;
+      justify-content: center;
+    }
+
+    .control-button {
+      width: 18px;
+      height: 18px;
+      border: 1px solid #333;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      background: linear-gradient(135deg, #1a1a1a, #0d0d0d);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1);
+      color: #aaa;
+      font-weight: bold;
+    }
+
+    .random-button-small {
+      border-color: #444;
+    }
+
+    .random-button-small:hover {
+      background: linear-gradient(135deg, #ff6b35, #e55a2b);
+      border-color: #ff6b35;
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(255,107,53,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
+    }
+
+    .random-button-small:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 3px rgba(255,107,53,0.3), inset 0 1px 1px rgba(0,0,0,0.2);
+    }
+
+    .lock-button {
+      border-color: #444;
+    }
+
+    .lock-button:hover {
+      background: linear-gradient(135deg, #333, #222);
+      border-color: #555;
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
+    }
+
+    .lock-button:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 1px rgba(0,0,0,0.2);
+    }
+
+    .lock-button.locked {
+      background: linear-gradient(135deg, #ff4444, #cc3333);
+      border-color: #ff4444;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(255,68,68,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
+    }
+
+    .lock-button.locked:hover {
+      background: linear-gradient(135deg, #ff6666, #ff4444);
+      border-color: #ff6666;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(255,68,68,0.5), inset 0 1px 1px rgba(255,255,255,0.3);
+    }
+
+    .lock-button.locked:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 3px rgba(255,68,68,0.3), inset 0 1px 1px rgba(0,0,0,0.2);
+    }
+
+    /* Styled input for frequency */
+    .freq-input {
+      background: linear-gradient(135deg, #1a1a1a, #0d0d0d);
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #fff;
+      padding: 0.5rem;
+      font-size: 0.9rem;
+      text-align: center;
+      width: 80px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.05);
+      transition: all 0.2s;
+    }
+
+    .freq-input:focus {
+      outline: none;
+      border-color: #00ff88;
+      background: linear-gradient(135deg, #1a1a1a, #111);
+      box-shadow: 0 0 8px rgba(0,255,136,0.3), inset 0 1px 1px rgba(255,255,255,0.1);
+      transform: translateY(-1px);
+    }
+
+    .freq-input:hover {
+      border-color: #444;
+      background: linear-gradient(135deg, #1e1e1e, #111);
+    }
+
+    /* Styled combobox for waveform */
+    .waveform-select {
+      background: linear-gradient(135deg, #1a1a1a, #0d0d0d);
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #fff;
+      padding: 0.5rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      width: 100px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.05);
+      transition: all 0.2s;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23aaa' d='M6 8L0 2h12z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 24px;
+    }
+
+    .waveform-select:focus {
+      outline: none;
+      border-color: #00ff88;
+      background: linear-gradient(135deg, #1a1a1a, #111);
+      box-shadow: 0 0 8px rgba(0,255,136,0.3), inset 0 1px 1px rgba(255,255,255,0.1);
+      transform: translateY(-1px);
+    }
+
+    .waveform-select:hover {
+      border-color: #444;
+      background: linear-gradient(135deg, #1e1e1e, #111);
+    }
+
+    .waveform-select option {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 4px;
+    }
+
+    .button-row {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .visualization-container {
+      display: flex;
+      justify-content: center;
+      margin: 2rem 0;
+    }
+
+    #canvas_soundWave {
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #0a0a0a;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+
+    .play-button, .random-button {
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+      color: #000;
+    }
+
+    .play-button {
+      background: linear-gradient(135deg, #00ff88, #00cc6a);
+      box-shadow: 0 4px 15px rgba(0,255,136,0.3);
+    }
+
+    .play-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,255,136,0.4);
+    }
+
+    .random-button {
+      background: linear-gradient(135deg, #ff6b35, #f7931e);
+      box-shadow: 0 4px 15px rgba(255,107,53,0.3);
+    }
+
+    .random-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255,107,53,0.4);
+    }
+
+    .play-button:active, .random-button:active {
+      transform: translateY(0);
+    }
+
+    .patch-editor {
+      margin: 2rem auto;
+      max-width: 800px;
+      padding: 1.5rem;
+      background: #2a2a2a;
+      border-radius: 8px;
+      border: 1px solid #444;
+    }
+
+    .patch-editor label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #fff;
+      font-weight: bold;
+      font-size: 0.9rem;
+    }
+
+    .patch-input {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+      padding: 0.75rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .patch-input:focus {
+      outline: none;
+      border-color: #00ff88;
+      box-shadow: 0 0 5px rgba(0,255,136,0.3);
+    }
+
+    .patch-buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .patch-button {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      background: #444;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .patch-button:hover {
+      background: #555;
+      transform: translateY(-1px);
+    }
+
+    .patch-button:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <h1>VibeSynth</h1>
+  <div class="controls" id="controls"></div>
+  <div class="visualization-container">
+    <canvas id="canvas_soundWave" width="600" height="200"></canvas>
+  </div>
+  <div class="button-row">
+    <button class="random-button" onclick="randomizeSound()">Random</button>
+    <button class="play-button" onclick="handlePlay()">Play</button>
+  </div>
+  
+  <div class="patch-editor">
+    <label for="patch-array">Patch Array:</label>
+    <textarea id="patch-array" class="patch-input" rows="3" placeholder="[volume,randomness,frequency,attack,sustain,release,shape,shapeCurve,slide,deltaSlide,pitchJump,pitchJumpTime,repeatTime,tremolo,noise,modulation,bitCrush,delay,sustainVolume,decay,filter]"></textarea>
+    <div class="patch-buttons">
+      <button class="patch-button" onclick="loadPatchFromArray()">Load Patch</button>
+      <button class="patch-button" onclick="copyPatchToClipboard()">Copy</button>
+    </div>
+  </div>
+
+  <script>
+    // Use ZZFX Library as synthesis: https://github.com/KilledByAPixel/ZzFX/blob/master/ZzFX.js
+    const ZZFX = {
+      volume: 0.3,
+      sampleRate: 44100,
+      x: new AudioContext(),
+
+      play: function(...parameters) {
+        return this.playSamples(this.buildSamples(...parameters));
+      },
+
+      playSamples: function(...samples) {
+        const buffer = this.x.createBuffer(samples.length, samples[0].length, this.sampleRate);
+        const source = this.x.createBufferSource();
+
+        samples.map((d, i) => buffer.getChannelData(i).set(d));
+        source.buffer = buffer;
+        source.connect(this.x.destination);
+        source.start();
+        return source;
+      },
+
+      buildSamples: function(
+        volume = 1,
+        randomness = 0.05,
+        frequency = 220,
+        attack = 0,
+        sustain = 0,
+        release = 0.1,
+        shape = 0,
+        shapeCurve = 1,
+        slide = 0,
+        deltaSlide = 0,
+        pitchJump = 0,
+        pitchJumpTime = 0,
+        repeatTime = 0,
+        noise = 0,
+        modulation = 0,
+        bitCrush = 0,
+        delay = 0,
+        sustainVolume = 1,
+        decay = 0,
+        tremolo = 0,
+        filter = 0
+      ) {
+        let PI2 = Math.PI * 2, sign = v => v < 0 ? -1 : 1, sampleRate = this.sampleRate;
+        let startSlide = slide *= 500 * PI2 / sampleRate / sampleRate;
+        let startFrequency = frequency *= (1 + randomness * 2 * Math.random() - randomness) * PI2 / sampleRate;
+        let b = [], t = 0, tm = 0, i = 0, j = 1, r = 0, c = 0, s = 0, f, length;
+
+        // biquad LP/HP filter
+        let quality = 2, w = PI2 * Math.abs(filter) * 2 / sampleRate;
+        let cos = Math.cos(w), alpha = Math.sin(w) / 2 / quality;
+        let a0 = 1 + alpha, a1 = -2 * cos / a0, a2 = (1 - alpha) / a0;
+        let b0 = (1 + sign(filter) * cos) / 2 / a0;
+        let b1 = -(sign(filter) + cos) / a0, b2 = b0;
+        let x2 = 0, x1 = 0, y2 = 0, y1 = 0;
+
+        // scale by sample rate
+        attack = attack * sampleRate + 9;
+        decay *= sampleRate;
+        sustain *= sampleRate;
+        release *= sampleRate;
+        delay *= sampleRate;
+        deltaSlide *= 500 * PI2 / sampleRate ** 3;
+        modulation *= PI2 / sampleRate;
+        pitchJump *= PI2 / sampleRate;
+        pitchJumpTime *= sampleRate;
+        repeatTime = repeatTime * sampleRate | 0;
+        volume *= this.volume;
+
+        // generate waveform
+        for (length = attack + decay + sustain + release + delay | 0; i < length; b[i++] = s * volume) {
+          if (!(++c % (bitCrush * 100 | 0))) {
+            s = shape ? shape > 1 ? shape > 2 ? shape > 3 ?
+              Math.sin(t ** 3) :
+              Math.max(Math.min(Math.tan(t), 1), -1) :
+              1 - (2 * t / PI2 % 2 + 2) % 2 :
+              1 - 4 * Math.abs(Math.round(t / PI2) - t / PI2) :
+              Math.sin(t);
+
+            s = (repeatTime ?
+                1 - tremolo + tremolo * Math.sin(PI2 * i / repeatTime) :
+                1) *
+              sign(s) * (Math.abs(s) ** shapeCurve) *
+              (i < attack ? i / attack :
+                i < attack + decay ?
+                  1 - ((i - attack) / decay) * (1 - sustainVolume) :
+                  i < attack + decay + sustain ?
+                    sustainVolume :
+                    i < length - delay ?
+                      (length - i - delay) / release * sustainVolume :
+                      0);
+
+            s = delay ? s / 2 + (delay > i ? 0 :
+              (i < length - delay ? 1 : (length - i) / delay) *
+              b[i - delay | 0] / 2 / volume) : s;
+
+            if (filter)
+              s = y1 = b2 * x2 + b1 * (x2 = x1) + b0 * (x1 = s) - a2 * y2 - a1 * (y2 = y1);
+          }
+
+          f = (frequency += slide += deltaSlide) * Math.cos(modulation * tm++);
+          t += f + f * noise * Math.sin(i ** 5);
+
+          if (j && ++j > pitchJumpTime) {
+            frequency += pitchJump;
+            startFrequency += pitchJump;
+            j = 0;
+          }
+
+          if (repeatTime && !(++r % repeatTime)) {
+            frequency = startFrequency;
+            slide = startSlide;
+            j = j || 1;
+          }
+        }
+
+        return b;
+      },
+
+      getNote: function(semitoneOffset = 0, rootNoteFrequency = 440) {
+        return rootNoteFrequency * 2 ** (semitoneOffset / 12);
+      }
+    };
+
+    // Parameter definitions array - now corresponds directly to ZZFX parameter order
+    const parameterDefs = [
+      { name: 'volume', min: 0, max: 1, default: 1.0, type: 'knob' },
+      { name: 'randomness', min: 0, max: 1, default: 0.0, type: 'knob' },
+      { name: 'frequency', min: 20, max: 2000, default: 220, type: 'input' },
+      { name: 'attack', min: 0, max: 2, default: 0.17, type: 'knob' },
+      { name: 'sustain', min: 0, max: 2, default: 0.02, type: 'knob' },
+      { name: 'release', min: 0, max: 2, default: 0.22, type: 'knob' },
+      { name: 'shape', min: 0, max: 4, default: 0, type: 'dropdown', options: [
+        { value: 0, text: 'Sine' },
+        { value: 1, text: 'Triangle' },
+        { value: 2, text: 'Sawtooth' },
+        { value: 3, text: 'Square' },
+        { value: 4, text: 'Noise' }
+      ]},
+      { name: 'shapeCurve', min: 0.1, max: 5, default: 5.0, type: 'knob' },
+      { name: 'slide', min: -1, max: 1, default: 0.0, type: 'knob' },
+      { name: 'deltaSlide', min: -1, max: 1, default: 0.0, type: 'knob' },
+      { name: 'pitchJump', min: -1000, max: 1000, default: 0.0, type: 'knob' },
+      { name: 'pitchJumpTime', min: 0, max: 1, default: 0.0, type: 'knob' },
+      { name: 'repeatTime', min: 0, max: 2, default: 0.01, type: 'knob' },
+      { name: 'noise', min: 0, max: 1, default: 0.0, type: 'knob' },
+      { name: 'modulation', min: 0, max: 100, default: 0.0, type: 'knob' },
+      { name: 'bitCrush', min: 0, max: 20, default: 0.0, type: 'knob' },
+      { name: 'delay', min: 0, max: 1, default: 0.0, type: 'knob' },
+      { name: 'sustainVolume', min: 0, max: 1, default: 1.0, type: 'knob' },
+      { name: 'decay', min: 0, max: 2, default: 0.0, type: 'knob' },
+      { name: 'tremolo', min: 0, max: 1, default: 0.0, type: 'knob' },
+      { name: 'filter', min: -1000, max: 1000, default: 0.0, type: 'knob' }
+    ];
+
+    // Current parameters array - matches ZZFX parameter order exactly
+    let params = [];
+    let lastParamsString = '';
+
+    // Default patch array
+    params = [1,,220,0.104,0.25,0.25,,3.53,0.686,0.182,0.025,,0.01,,,,,0.05,0.469,0.15,0.15];
+
+    // Initialize with default patch
+
+    // Synth Engine Class - simplified and fast
+    class SynthEngine {
+      constructor() {
+        this.activeNotes = new Map();
+        this.bufferCache = new Map();
+        this.lastParamsString = '';
+        this.cacheMaxSize = 64;
+        
+        // Performance optimization: create a single gain node for master volume
+        this.masterGain = ZZFX.x.createGain();
+        this.masterGain.connect(ZZFX.x.destination);
+        
+        console.log('SynthEngine initialized with fast caching');
+      }
+
+      // Simple parameter change detection
+      paramsChanged() {
+        const currentParams = JSON.stringify(params);
+        if (this.lastParamsString !== currentParams) {
+          this.lastParamsString = currentParams;
+          this.bufferCache.clear(); // Clear cache on param change
+          return true;
+        }
+        return false;
+      }
+
+      // Get or create buffer for a MIDI note - simple and fast
+      getBufferForNote(midiNote) {
+        // Check if params changed
+        this.paramsChanged();
+        
+        // Try cache first
+        if (this.bufferCache.has(midiNote)) {
+          return this.bufferCache.get(midiNote);
+        }
+
+        // Calculate frequency relative to base frequency
+        const baseFreq = params[2] || 220;
+        const semitoneOffset = midiNote - 60;
+        const frequency = baseFreq * Math.pow(2, semitoneOffset / 12);
+
+        // Create new params array with modified frequency
+        const noteParams = [...params];
+        noteParams[2] = frequency;
+
+        // Build samples using ZZFX
+        const samples = ZZFX.buildSamples(...noteParams);
+        
+        // Create buffer
+        const buffer = ZZFX.x.createBuffer(1, samples.length, ZZFX.sampleRate);
+        buffer.getChannelData(0).set(samples);
+
+        // Cache if there's room (simple)
+        if (this.bufferCache.size < this.cacheMaxSize) {
+          this.bufferCache.set(midiNote, buffer);
+        }
+
+        return buffer;
+      }
+
+      // Fast note playing
+      playNote(midiNote, velocity = 127) {
+        if (ZZFX.x.state === 'suspended') {
+          ZZFX.x.resume();
+        }
+
+        const buffer = this.getBufferForNote(midiNote);
+        
+        const src = ZZFX.x.createBufferSource();
+        const gainNode = ZZFX.x.createGain();
+        
+        src.buffer = buffer;
+        src.connect(gainNode);
+        gainNode.connect(this.masterGain);
+        
+        gainNode.gain.value = (velocity / 127) * (params[0] || 0.5);
+        src.start();
+        
+        // Store for note off
+        this.activeNotes.set(midiNote, { source: src, gain: gainNode });
+        
+        src.onended = () => {
+          this.activeNotes.delete(midiNote);
+        };
+      }
+
+      // Stop note with quick release
+      stopNote(midiNote) {
+        if (this.activeNotes.has(midiNote)) {
+          const { source, gain } = this.activeNotes.get(midiNote);
+          
+          const now = ZZFX.x.currentTime;
+          const releaseTime = Math.min(0.03, params[5] || 0.1);
+          
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + releaseTime);
+          
+          setTimeout(() => {
+            try { source.stop(); } catch (e) {}
+          }, releaseTime * 1000 + 10);
+          
+          this.activeNotes.delete(midiNote);
+        }
+      }
+
+      // Original play sound using ZZFX
+      playSound() {
+        if (ZZFX.x.state === 'suspended') {
+          ZZFX.x.resume();
+        }
+        return ZZFX.play(...params);
+      }
+
+      // Simple preload of common notes
+      preloadNotes(startNote = 60, endNote = 72) {
+        for (let note = startNote; note <= endNote; note++) {
+          this.getBufferForNote(note);
+        }
+      }
+
+      // Get buffer for visualization
+      getBuffer() {
+        const samples = ZZFX.buildSamples(...params);
+        const buffer = ZZFX.x.createBuffer(1, samples.length, ZZFX.sampleRate);
+        buffer.getChannelData(0).set(samples);
+        return buffer;
+      }
+
+      // Get cache statistics
+      getCacheStats() {
+        return {
+          cached: this.bufferCache.size,
+          maxSize: this.cacheMaxSize,
+          activeNotes: this.activeNotes.size
+        };
+      }
+
+      // Update master volume
+      setMasterVolume(volume) {
+        this.masterGain.gain.setValueAtTime(volume, ZZFX.x.currentTime);
+      }
+    }
+
+    // MIDI Handler Class
+    class MIDIHandler {
+      constructor(synthEngine) {
+        this.synthEngine = synthEngine;
+        this.midiAccess = null;
+        this.init();
+      }
+
+      async init() {
+        try {
+          this.midiAccess = await navigator.requestMIDIAccess();
+          
+          for (const input of this.midiAccess.inputs.values()) {
+            input.onmidimessage = (event) => this.handleMIDIMessage(event);
+          }
+          
+          console.log('MIDI initialized successfully');
+        } catch (error) {
+          console.log('MIDI not available:', error);
+        }
+      }
+
+      handleMIDIMessage(event) {
+        const [command, note, velocity] = event.data;
+        
+        if ((command >= 144 && command <= 159)) {
+          if (velocity > 0) {
+            this.synthEngine.playNote(note, velocity);
+          } else {
+            this.synthEngine.stopNote(note);
+          }
+        } else if (command >= 128 && command <= 143) {
+          this.synthEngine.stopNote(note);
+        }
+      }
+    }
+
+    // Global instances
+    let synthEngine, midiHandler;
+    let lockedParams = new Set(); // Track which parameters are locked
+
+    // Fixed global keyboard handler - simplified logic
+    function globalKeyHandler(event) {
+      // Only block keyboard if user is actively typing in input fields
+      const activeElement = document.activeElement;
+      const isTyping = activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' || 
+        activeElement.tagName === 'SELECT' ||
+        activeElement.contentEditable === 'true'
+      );
+      
+      // If user is typing, don't handle keyboard
+      if (isTyping) {
+        return;
+      }
+      
+      // Piano key mapping
+      const keyMap = {
+        'z': 60, 'x': 62, 'c': 64, 'v': 65, 'b': 67, 'n': 69, 'm': 71,
+        's': 61, 'd': 63, 'g': 66, 'h': 68, 'j': 70,
+        'q': 72, 'w': 74, 'e': 76, 'r': 77, 't': 79, 'y': 81, 'u': 83, 'i': 84, 'o': 86, 'p': 88, '[': 89, ']': 91,
+        '2': 73, '3': 75, '5': 78, '6': 80, '7': 82, '9': 85, '0': 87
+      };
+      
+      const key = event.key.toLowerCase();
+      if (keyMap[key] && synthEngine) {
+        synthEngine.playNote(keyMap[key]);
+        event.preventDefault();
+      }
+    }
+
+    // Function to update visualization with current parameters
+    function updateVisualization() {
+      const buffer = synthEngine.getBuffer();
+      DrawSoundWave(buffer, params[0], params);
+    }
+
+    // Function to update patch array display
+    function updatePatchArray() {
+      // Format array with proper precision and empty slots for zero/default values
+      const formattedArray = params.map((value, index) => {
+        const def = parameterDefs[index];
+        if (value === 0 || (def && Math.abs(value - def.default) < 0.0001)) return '';
+        if (Number.isInteger(value)) return value.toString();
+        return parseFloat(value.toFixed(4)).toString();
+      });
+      
+      const patchInput = document.getElementById('patch-array');
+      if (patchInput) {
+        patchInput.value = '[' + formattedArray.join(',') + ']';
+      }
+    }
+
+    // Simple parameter change handler
+    function onParameterChange(index, value) {
+      // Update parameter
+      params[index] = value;
+      
+      // Immediate updates for responsive feel
+      updateVisualization();
+      updatePatchArray();
+      
+      // Update master volume immediately if volume parameter changed
+      if (index === 0) { // volume parameter
+        synthEngine.setMasterVolume(value * ZZFX.volume);
+      }
+    }
+
+    // Function to load patch from array input
+    function loadPatchFromArray() {
+      const patchInput = document.getElementById('patch-array');
+      let inputValue = patchInput.value.trim();
+      
+      try {
+        // Remove brackets if present
+        if (inputValue.startsWith('[') && inputValue.endsWith(']')) {
+          inputValue = inputValue.slice(1, -1);
+        }
+        
+        // Split by comma and handle empty values
+        const patchArray = inputValue.split(',').map(value => {
+          const trimmed = value.trim();
+          if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') {
+            return null;
+          }
+          return parseFloat(trimmed);
+        });
+        
+        console.log('Parsed patch array:', patchArray);
+        
+        // Update parameters from array
+        params = [];
+        parameterDefs.forEach((def, index) => {
+          let value;
+          if (index < patchArray.length && patchArray[index] !== null && !isNaN(patchArray[index])) {
+            value = patchArray[index];
+          } else {
+            value = def.default;
+          }
+          
+          // Clamp value to parameter bounds
+          const clampedValue = Math.max(def.min, Math.min(def.max, value));
+          params[index] = clampedValue;
+        });
+        
+        // Update all UI controls to reflect the new values
+        params.forEach((value, index) => {
+          const def = parameterDefs[index];
+          if (def) {
+            updateControlDisplay(index, value, def);
+          }
+        });
+        
+        // Update visualization and patch array display
+        updateVisualization();
+        updatePatchArray();
+        
+        console.log('Patch loaded successfully:', params);
+        
+        // Visual feedback
+        const loadButton = event.target;
+        const originalText = loadButton.textContent;
+        loadButton.textContent = 'Loaded!';
+        loadButton.style.background = '#00ff88';
+        setTimeout(() => {
+          loadButton.textContent = originalText;
+          loadButton.style.background = '#444';
+        }, 1000);
+        
+      } catch (error) {
+        alert('Error loading patch: ' + error.message);
+        console.error('Patch load error:', error);
+      }
+    }
+
+    // Function to copy patch array to clipboard
+    function copyPatchToClipboard() {
+      const patchInput = document.getElementById('patch-array');
+      patchInput.select();
+      document.execCommand('copy');
+      
+      // Brief visual feedback
+      const copyButton = event.target;
+      const originalText = copyButton.textContent;
+      copyButton.textContent = 'Copied!';
+      setTimeout(() => {
+        copyButton.textContent = originalText;
+      }, 1000);
+    }
+
+    function normalizeValue(value, min, max) {
+      return (value - min) / (max - min);
+    }
+
+    function denormalizeValue(normalizedValue, min, max) {
+      return min + normalizedValue * (max - min);
+    }
+
+    function createKnobControl(index, def) {
+      const div = document.createElement('div');
+      div.className = 'control';
+
+      const label = document.createElement('div');
+      label.className = 'control-label';
+      label.textContent = def.name;
+      div.appendChild(label);
+
+      const knobWrapper = document.createElement('div');
+      knobWrapper.className = 'knob-control';
+
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.className = 'knob-input';
+      input.min = 0;
+      input.max = 1;
+      input.step = 0.001;
+      
+      const normalizedValue = normalizeValue(def.default, def.min, def.max);
+      input.value = normalizedValue;
+      
+      // Calculate knob angle (-135° to +135°)
+      const angle = normalizedValue * 270 - 135;
+      input.style.setProperty('--knob-angle', angle);
+      knobWrapper.style.setProperty('--progress', normalizedValue);
+      
+      input.oninput = () => {
+        const normalizedVal = parseFloat(input.value);
+        const realValue = denormalizeValue(normalizedVal, def.min, def.max);
+        
+        const angle = normalizedVal * 270 - 135;
+        input.style.setProperty('--knob-angle', angle);
+        knobWrapper.style.setProperty('--progress', normalizedVal);
+        
+        valueDisplay.textContent = formatValue(realValue, def);
+        
+        // Use optimized parameter change handler
+        onParameterChange(index, realValue);
+      };
+
+      knobWrapper.appendChild(input);
+
+      const valueDisplay = document.createElement('div');
+      valueDisplay.className = 'knob-value';
+      valueDisplay.contentEditable = true;
+      valueDisplay.textContent = formatValue(def.default, def);
+      
+      valueDisplay.addEventListener('input', () => {
+        const value = Math.max(def.min, Math.min(def.max, parseFloat(valueDisplay.textContent) || def.min));
+        const normalizedVal = normalizeValue(value, def.min, def.max);
+        input.value = normalizedVal;
+        
+        const angle = normalizedVal * 270 - 135;
+        input.style.setProperty('--knob-angle', angle);
+        knobWrapper.style.setProperty('--progress', normalizedVal);
+        
+        // Use optimized parameter change handler
+        onParameterChange(index, value);
+      });
+      
+      valueDisplay.addEventListener('blur', () => {
+        const value = Math.max(def.min, Math.min(def.max, parseFloat(valueDisplay.textContent) || def.min));
+        valueDisplay.textContent = formatValue(value, def);
+      });
+      
+      valueDisplay.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          valueDisplay.blur();
+        }
+      });
+      
+      valueDisplay.addEventListener('focus', () => {
+        const range = document.createRange();
+        range.selectNodeContents(valueDisplay);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range); 
+      });
+
+      // Create control buttons container
+      const buttonsContainer = document.createElement('div');
+      buttonsContainer.className = 'control-buttons';
+
+      // Random button for individual parameter
+      const randomBtn = document.createElement('button');
+      randomBtn.className = 'control-button random-button-small';
+      randomBtn.innerHTML = '?';
+      randomBtn.title = 'Randomize this parameter';
+      randomBtn.onclick = (e) => {
+        e.preventDefault();
+        randomizeParameter(index, def);
+      };
+
+      // Lock button
+      const lockBtn = document.createElement('button');
+      lockBtn.className = 'control-button lock-button';
+      lockBtn.innerHTML = '🔒';
+      lockBtn.title = 'Lock/unlock this parameter';
+      lockBtn.onclick = (e) => {
+        e.preventDefault();
+        toggleParameterLock(index, lockBtn);
+      };
+
+      buttonsContainer.appendChild(randomBtn);
+      buttonsContainer.appendChild(lockBtn);
+
+      div.appendChild(knobWrapper);
+      div.appendChild(valueDisplay);
+      div.appendChild(buttonsContainer);
+      div.setAttribute('data-param', index);
+      return div;
+    }
+
+    function createInputControl(index, def) {
+      const div = document.createElement('div');
+      div.className = 'control';
+
+      const label = document.createElement('div');
+      label.className = 'control-label';
+      label.textContent = def.name;
+      div.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'freq-input';
+      input.min = def.min;
+      input.max = def.max;
+      input.step = def.step || 1;
+      input.value = def.default;
+      
+      input.oninput = () => {
+        // Use optimized parameter change handler
+        onParameterChange(index, parseFloat(input.value));
+      };
+
+      div.appendChild(input);
+      div.setAttribute('data-param', index);
+      return div;
+    }
+
+    function createDropdownControl(index, def) {
+      const div = document.createElement('div');
+      div.className = 'control';
+
+      const label = document.createElement('div');
+      label.className = 'control-label';
+      label.textContent = def.name;
+      div.appendChild(label);
+
+      const select = document.createElement('select');
+      select.className = 'waveform-select';
+      
+      def.options.forEach(option => {
+        const optionElement = document.createElement('option');
+        optionElement.value = option.value;
+        optionElement.textContent = option.text;
+        if (option.value === def.default) optionElement.selected = true;
+        select.appendChild(optionElement);
+      });
+
+      select.onchange = () => {
+        // Use optimized parameter change handler
+        onParameterChange(index, parseFloat(select.value));
+      };
+
+      div.appendChild(select);
+      div.setAttribute('data-param', index);
+      return div;
+    }
+
+    function formatValue(value, def) {
+      if (def.type === 'input') {
+        return Math.round(value).toString();
+      }
+      return value.toFixed(3);
+    }
+
+    // Create controls
+    const controls = document.getElementById('controls');
+    parameterDefs.forEach((def, index) => {
+      let control;
+      
+      switch (def.type) {
+        case 'input':
+          control = createInputControl(index, def);
+          break;
+        case 'dropdown':
+          control = createDropdownControl(index, def);
+          break;
+        case 'knob':
+        default:
+          control = createKnobControl(index, def);
+          break;
+      }
+      
+      controls.appendChild(control);
+    });
+
+    function handlePlay() {
+      if (ZZFX.x.state === 'suspended') {
+        ZZFX.x.resume();
+      }
+      synthEngine.playSound();
+    }
+
+    // Initialize everything when page loads
+    window.addEventListener('load', () => {
+      console.log('Page loaded, initializing fast synth...');
+      
+      try {
+        // Initialize classes
+        synthEngine = new SynthEngine();
+        console.log('SynthEngine created with fast caching');
+        
+        midiHandler = new MIDIHandler(synthEngine);
+        console.log('MIDIHandler created');
+        
+        // Use simple global keyboard handler
+        document.addEventListener('keydown', globalKeyHandler);
+        
+        // Show initial visualization with default parameters
+        updateVisualization();
+        updatePatchArray();
+        
+        // Simple preloading for fast response
+        setTimeout(() => {
+          synthEngine.preloadNotes(60, 72); // C4 to C5
+          console.log('Preloaded common note buffers for instant playback');
+        }, 100);
+        
+      } catch (error) {
+        console.error('Error during initialization:', error);
+      }
+      
+      console.log('Fast initialization complete - try pressing keys now');
+    });
+
+    function DrawSoundWave(buffer, volume, soundParams) {
+      // Set up canvas
+      const canvas = document.getElementById('canvas_soundWave');
+      const x = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      
+      // Clear canvas
+      x.clearRect(0, 0, w, h);
+      
+      if (!volume || !buffer) {
+        return;
+      }
+      
+      // Get buffer data
+      const bufferData = buffer.getChannelData(0);
+      const length = bufferData.length;
+      
+      if (!length) return;
+      
+      // Calculate phase durations in samples
+      const sampleRate = 44100;
+      const attackSamples = soundParams[3] * sampleRate; // attack at index 3
+      const decaySamples = soundParams[18] * sampleRate; // decay at index 18
+      const sustainSamples = soundParams[4] * sampleRate; // sustain at index 4
+      const releaseSamples = soundParams[5] * sampleRate; // release at index 5
+      
+      // Fixed ADSR colors - consistent and meaningful
+      const colors = {
+        background: '#0a0a0a',
+        attack: '#ff4444',     // Red for attack (energy building)
+        decay: '#ffaa44',      // Orange for decay (energy decreasing)
+        sustain: '#44ff44',    // Green for sustain (stable energy)
+        release: '#4488ff',    // Blue for release (energy fading)
+        waveform: '#ffffff'    // White for waveform
+      };
+      
+      // Background
+      x.fillStyle = colors.background;
+      x.fillRect(0, 0, w, h);
+      
+      let X = 0, W;
+      
+      // Attack phase
+      x.fillStyle = colors.attack + '33'; // Add transparency
+      W = w * attackSamples / length;
+      x.fillRect(X, 0, W, h);
+      x.strokeStyle = colors.attack;
+      x.lineWidth = 1;
+      x.strokeRect(X, 0, W, h);
+      X += W;
+      
+      // Decay phase
+      x.fillStyle = colors.decay + '33';
+      W = w * decaySamples / length;
+      x.fillRect(X, 0, W, h);
+      x.strokeStyle = colors.decay;
+      x.strokeRect(X, 0, W, h);
+      X += W;
+      
+      // Sustain phase
+      x.fillStyle = colors.sustain + '33';
+      W = w * sustainSamples / length;
+      x.fillRect(X, 0, W, h);
+      x.strokeStyle = colors.sustain;
+      x.strokeRect(X, 0, W, h);
+      X += W;
+      
+      // Release phase
+      x.fillStyle = colors.release + '33';
+      W = w * releaseSamples / length;
+      x.fillRect(X, 0, W, h);
+      x.strokeStyle = colors.release;
+      x.strokeRect(X, 0, W, h);
+      
+      // Draw the waveform
+      x.strokeStyle = colors.waveform;
+      x.lineWidth = 2;
+      x.beginPath();
+      
+      for (let i = 0; i < length; i += Math.max(1, Math.floor(length / w))) {
+        const xPos = (w * i) / length;
+        const yPos = (0.8 * bufferData[i] * h) / 2 / volume + h / 2;
+        
+        if (i === 0) {
+          x.moveTo(xPos, yPos);
+        } else {
+          x.lineTo(xPos, yPos);
+        }
+      }
+      
+      x.stroke();
+      x.lineWidth = 1;
+    }
+
+    // Fixed randomizeSound function - simplified and direct
+    function randomizeSound(lengthScale = 1, volume = 1) {
+      const R = () => Math.random();
+      const C = () => R() < 0.5 ? R() : 0;
+      const S = () => C() ? 1 : -1;
+      
+      // Generate random sound parameters with proper bounds
+      const attack = Math.min(2, R() ** 3 / 2 * lengthScale);
+      const decay = Math.min(2, R() ** 3 / 2 * lengthScale);
+      const sustain = Math.min(2, R() ** 3 / 2 * lengthScale);
+      const release = Math.min(2, R() ** 3 / 2 * lengthScale);
+      const filter = C() ? 0 : (R() < 0.5 ? 
+        Math.max(-1000, Math.min(1000, (99 + R() ** 2 * 900) / 1000 - 0.5)) : 
+        Math.max(-1000, Math.min(1000, (R() ** 2 * 1000 - 500) / 1000)));
+      
+      // Generate random params array with proper bounds
+      let randomParams = [
+        volume,                                           // volume (0-1)
+        Math.min(1, R() * 0.1),                         // randomness (0-1)
+        Math.max(20, Math.min(2000, 9 + R() ** 2 * 1000)), // frequency (20-2000)
+        attack,                                          // attack (0-2)
+        sustain,                                         // sustain (0-2)
+        release,                                         // release (0-2)
+        Math.floor(R() * 5),                            // shape (0-4, integer)
+        Math.max(0.1, Math.min(5, R() * 5)),           // shapeCurve (0.1-5)
+        Math.max(-1, Math.min(1, C() ** 3 * S())),     // slide (-1 to 1)
+        Math.max(-1, Math.min(1, C() ** 3 * S())),     // deltaSlide (-1 to 1)
+        Math.max(-1000, Math.min(1000, C() ** 2 * 500 * S())), // pitchJump (-1000 to 1000)
+        Math.min(1, R() ** 2),                          // pitchJumpTime (0-1)
+        Math.min(2, C()),                               // repeatTime (0-2)
+        Math.min(1, C() ** 4),                          // noise (0-1)
+        Math.min(100, R() * C() ** 2 * 50),            // modulation (0-100)
+        Math.min(20, C() ** 4 * 20),                   // bitCrush (0-20)
+        Math.min(1, C() ** 3 / 2),                     // delay (0-1)
+        Math.max(0, Math.min(1, 1 - R() * 0.5)),      // sustainVolume (0-1)
+        decay,                                          // decay (0-2)
+        Math.min(1, C() ** 2 * 0.5),                  // tremolo (0-1)
+        filter                                          // filter (-1000 to 1000)
+      ];
+      
+      // Ensure minimum release to prevent pop
+      if (randomParams[5] === 0) {
+        randomParams[5] = R() * 0.01;
+      }
+      
+      // Ensure minimum attack to prevent clicks  
+      if (randomParams[3] === 0) {
+        randomParams[3] = R() * 0.01;
+      }
+      
+      // Only update unlocked parameters
+      randomParams.forEach((value, index) => {
+        if (!lockedParams.has(index)) {
+          params[index] = value;
+        }
+      });
+      
+      // Update all controls with values (locked params keep their current values)
+      params.forEach((value, index) => {
+        const def = parameterDefs[index];
+        if (def) {
+          updateControlDisplay(index, value, def);
+        }
+      });
+      
+      // Generate and visualize the random sound immediately
+      updateVisualization();
+      
+      // Update patch array display
+      updatePatchArray();
+    }
+
+    // Function to randomize individual parameter
+    function randomizeParameter(index, def) {
+      const R = () => Math.random();
+      const C = () => R() < 0.5 ? R() : 0;
+      const S = () => C() ? 1 : -1;
+      
+      let randomValue;
+      
+      // Generate appropriate random value based on parameter type
+      switch (index) {
+        case 0: // volume
+          randomValue = R();
+          break;
+        case 1: // randomness
+          randomValue = R() * 0.1;
+          break;
+        case 2: // frequency
+          randomValue = Math.max(20, Math.min(2000, 9 + R() ** 2 * 1000));
+          break;
+        case 3: // attack
+        case 4: // sustain
+        case 5: // release
+        case 18: // decay
+          randomValue = Math.max(0.001, R() ** 3 / 2 * 2);
+          break;
+        case 6: // shape
+          randomValue = Math.floor(R() * 5);
+          break;
+        case 7: // shapeCurve
+          randomValue = Math.max(0.1, Math.min(5, R() * 5));
+          break;
+        case 8: // slide
+        case 9: // deltaSlide
+          randomValue = Math.max(-1, Math.min(1, C() ** 3 * S()));
+          break;
+        case 10: // pitchJump
+          randomValue = Math.max(-1000, Math.min(1000, C() ** 2 * 500 * S()));
+          break;
+        case 11: // pitchJumpTime
+          randomValue = R() ** 2;
+          break;
+        case 12: // repeatTime
+          randomValue = Math.min(2, C());
+          break;
+        case 13: // noise
+        case 16: // delay
+        case 17: // sustainVolume
+        case 19: // tremolo
+          randomValue = C() ** 4;
+          break;
+        case 14: // modulation
+          randomValue = Math.min(100, R() * C() ** 2 * 50);
+          break;
+        case 15: // bitCrush
+          randomValue = Math.min(20, C() ** 4 * 20);
+          break;
+        case 20: // filter
+          randomValue = C() ? 0 : (R() < 0.5 ? 
+            Math.max(-1000, Math.min(1000, (99 + R() ** 2 * 900) / 1000 - 0.5)) : 
+            Math.max(-1000, Math.min(1000, (R() ** 2 * 1000 - 500) / 1000)));
+          break;
+        default:
+          randomValue = def.min + R() * (def.max - def.min);
+      }
+      
+      // Clamp to bounds
+      randomValue = Math.max(def.min, Math.min(def.max, randomValue));
+      
+      // Update parameter
+      params[index] = randomValue;
+      
+      // Update control display
+      updateControlDisplay(index, randomValue, def);
+      
+      // Update visualization and patch
+      updateVisualization();
+      updatePatchArray();
+    }
+
+    // Function to toggle parameter lock
+    function toggleParameterLock(index, lockButton) {
+      if (lockedParams.has(index)) {
+        lockedParams.delete(index);
+        lockButton.classList.remove('locked');
+        lockButton.innerHTML = '🔒';
+        lockButton.title = 'Lock this parameter';
+      } else {
+        lockedParams.add(index);
+        lockButton.classList.add('locked');
+        lockButton.innerHTML = '🔓';
+        lockButton.title = 'Unlock this parameter';
+      }
+    }
+    
+    function updateControlDisplay(index, value, def) {
+      const control = document.querySelector(`[data-param="${index}"]`);
+      if (!control) return;
+      
+      if (def.type === 'knob') {
+        const input = control.querySelector('.knob-input');
+        const valueDisplay = control.querySelector('.knob-value');
+        const knobWrapper = control.querySelector('.knob-control');
+        
+        if (input && valueDisplay && knobWrapper) {
+          const normalizedValue = normalizeValue(value, def.min, def.max);
+          input.value = normalizedValue;
+          
+          const angle = normalizedValue * 270 - 135;
+          input.style.setProperty('--knob-angle', angle);
+          knobWrapper.style.setProperty('--progress', normalizedValue);
+          
+          valueDisplay.textContent = formatValue(value, def);
+        }
+      } else if (def.type === 'input') {
+        const input = control.querySelector('.freq-input');
+        if (input) {
+          input.value = value;
+        }
+      } else if (def.type === 'dropdown') {
+        const select = control.querySelector('.waveform-select');
+        if (select) {
+          select.value = value;
+        }
+      }
+    }
+  </script>
+</body>
+</html>
