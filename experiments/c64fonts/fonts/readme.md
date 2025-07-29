@@ -1,1 +1,1 @@
-Downloaded fonts from somewhere. Ill put the link here if i find it again.
+Fonts from: https://home-2002.code-cop.org/c64/font_01.html
