@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelFont Parser for 64c Fonts</title>
+    <style>
+        body {
+            background-color: #222;
+            color: #edd;
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .panel {
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 5px;
+            padding: 15px;
+            min-width: 300px;
+            flex: 1;
+        }
+        
+        h1, h2 {
+            color: #6bc4cd;
+        }
+        
+        input[type="file"] {
+            background: #444;
+            color: #edd;
+            border: 1px solid #666;
+            padding: 8px;
+            border-radius: 3px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        select {
+            background: #444;
+            color: #edd;
+            border: 1px solid #666;
+            padding: 8px;
+            border-radius: 3px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        button {
+            background: #6bc4cd;
+            color: #222;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px 5px 5px 0;
+        }
+        
+        button:hover {
+            background: #5aa3aa;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 300px;
+            background: #444;
+            color: #edd;
+            border: 1px solid #666;
+            border-radius: 3px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        
+        .editor-canvas {
+            background: #003333;
+            border: 2px solid #666;
+            image-rendering: pixelated;
+            margin: 10px 0;
+            cursor: crosshair;
+        }
+        
+        .editor-info {
+            background: #444;
+            padding: 8px;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #6bc4cd;
+        }
+        
+        .editor-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .editor-buttons button {
+            flex: 1;
+            min-width: 80px;
+        }
+        
+        .info {
+            background: #444;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .error {
+            background: #664444;
+            color: #ffaaaa;
+        }
+        
+        .success {
+            background: #446644;
+            color: #aaffaa;
+        }
+        
+        .char-grid {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            gap: 2px;
+            max-width: 800px;
+            margin: 10px 0;
+        }
+        
+        .char-preview {
+            min-width: 20px;
+            min-height: 20px;
+            background: #444;
+            border: 1px solid #666;
+            image-rendering: pixelated;
+            cursor: pointer;
+        }
+        
+        .char-preview:hover {
+            border-color: #6bc4cd;
+        }
+    </style>
+</head>
+<body>
+    <h1>PixelFont Parser for 64c Fonts</h1>
+    <p>Convert Commodore 64 font files (.64c) to PixelFont JSON format with correct PETSCII mapping.</p>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Input</h2>
+            <input type="file" id="fileInput" accept=".64c" />
+            
+            <label for="fontSize">Font Size:</label>
+            <select id="fontSize">
+                <option value="8x8">8x8</option>
+                <option value="16x8">16x8</option>
+                <option value="8x16">8x16</option>
+                <option value="16x16">16x16</option>
+            </select>
+            
+            <button onclick="parseFont(); console.log('Parse Font button clicked');">Parse Font</button>
+            <button onclick="downloadJSON(); console.log('Download JSON button clicked');">Download JSON</button>
+            <button onclick="copyToClipboard(); console.log('Copy JSON button clicked');">Copy JSON</button>
+            
+            <div id="status" class="info"></div>
+        </div>
+        
+        <div class="panel">
+            <h2>Character Grid</h2>
+            <div id="charGrid" class="char-grid"></div>
+        </div>
+        
+        <div class="panel">
+            <h2 id="editorTitle">Character Editor</h2>
+            <div id="editorControls" style="display: none;">
+                <div class="editor-info">
+                    <span id="currentCharInfo">No character selected</span>
+                </div>
+                <div class="editor-buttons">
+                    <button onclick="shiftCharacter('up')">↑ Up</button>
+                    <button onclick="shiftCharacter('down')">↓ Down</button>
+                    <button onclick="shiftCharacter('left')">← Left</button>
+                    <button onclick="shiftCharacter('right')">→ Right</button>
+                    <button onclick="clearCharacter()">Clear</button>
+                    <button onclick="invertCharacter()">Invert</button>
+                    <button onclick="rotateCharacter()">Rotate</button>
+                </div>
+            </div>
+            <canvas id="editorCanvas" class="editor-canvas" width="256" height="256"></canvas>
+        </div>
+    </div>
+    
+    <div class="panel">
+        <h2>Generated JSON</h2>
+        <textarea id="jsonOutput" placeholder="Parsed font data will appear here..."></textarea>
+    </div>
+
+    <div class="panel">
+        <h2>Test PixelFont</h2>
+        <canvas id="testCanvas" style="background: #003333; border: 2px solid #666; image-rendering: pixelated; cursor: text; display: block; margin: 10px auto;" tabindex="0"></canvas>
+    </div>
+
+    <script>
+        let parsedFont = null;
+        let fontData = null;
+        let currentEditIndex = -1;
+        let currentCharData = null;
+        let cols = 8;
+        let rows = 8;
+        let pixelSize = 16;
+        let isMouseDown = false;
+        let paintMode = 1; // 1 for paint (set pixel), 0 for erase (clear pixel)
+        let textEditor = null;
+        
+        const PETSCII_MAP = {
+            '@': 0,
+            'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9,
+            'j': 10, 'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17,
+            'r': 18, 's': 19, 't': 20, 'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25,
+            'z': 26, '[': 27, '£': 28, ']': 29, ' ': 32, '!': 33, '"': 34, '#': 35, 
+            ':': 36, '%': 37, '&': 38, '\'': 39, '(': 40, ')': 41, '*': 42, '+': 43, 
+            ',': 44, '-': 45, '.': 46, '/': 47, '0': 48, '1': 49, '2': 50, '3': 51, 
+            '4': 52, '5': 53, '6': 54, '7': 55, '8': 56, '9': 57, ':': 58, ';': 59, 
+            '<': 60, '=': 61, '>': 62, '?': 63, 'A': 65, 'B': 66, 'C': 67, 'D': 68, 
+            'E': 69, 'F': 70, 'G': 71, 'H': 72, 'I': 73, 'J': 74, 'K': 75, 'L': 76, 
+            'M': 77, 'N': 78, 'O': 79, 'P': 80, 'Q': 81, 'R': 82, 'S': 83, 'T': 84, 
+            'U': 85, 'V': 86, 'W': 87, 'X': 88, 'Y': 89, 'Z': 90
+        };
+        
+        // Create the character string in PETSCII order (index 0 = @, 1 = a, etc.)
+        function createPETSCIICharset(maxChars = 95) {
+            const charset = new Array(maxChars);
+            
+            // Fill with default characters first
+            for (let i = 0; i < maxChars; i++) {
+                charset[i] = String.fromCharCode(i < 32 ? 32 + i : i); // fallback
+            }
+            
+            // Map characters to their correct PETSCII positions
+            charset[0] = '@';   // @ at position 0
+            
+            // Lowercase letters a-z at positions 1-26
+            for (let i = 0; i < 26; i++) {
+                charset[1 + i] = String.fromCharCode(97 + i); // 'a' + i
+            }
+            
+            charset[27] = '[';  // [ at position 27
+            charset[28] = '£';  // £ at position 28  
+            charset[29] = ']';  // ] at position 29
+            
+            // Fill positions 30-31 with placeholder
+            charset[30] = '^';
+            charset[31] = '_';
+            
+            // Space and symbols at positions 32-63
+            for (let i = 32; i <= 63; i++) {
+                charset[i] = String.fromCharCode(i);
+            }
+            
+            charset[64] = '`';  // ` at position 64
+            
+            // Uppercase letters A-Z at positions 65-90
+            for (let i = 0; i < 26; i++) {
+                charset[65 + i] = String.fromCharCode(65 + i); // 'A' + i
+            }
+            
+            // Fill remaining positions
+            for (let i = 91; i < maxChars; i++) {
+                if (!charset[i]) {
+                    charset[i] = String.fromCharCode(i);
+                }
+            }
+            
+            return charset.join('');
+        }
+        
+        const CHARSET = createPETSCIICharset();
+        
+        // PixelFont class for testing the generated font
+        class PixelFont {
+            constructor(font) {
+                console.log('PixelFont constructor called with font:', font);
+                const { base64, chars, cols, rows } = font;
+                console.log('Destructured font data:', { base64: base64.substring(0, 50) + '...', chars: chars.substring(0, 20) + '...', cols, rows });
+                
+                this.base64 = base64;
+                this.chars = chars;
+                this.cols = cols;
+                this.rows = rows;
+                this.bitsPerChar = this.cols * this.rows;
+                
+                // Calculate how many bits we need total
+                const totalBits = this.bitsPerChar * this.chars.length;
+                const totalPixels = this.cols * this.rows * this.chars.length;
+                this.bits = new Uint8Array(totalPixels);
+                
+                console.log('PixelFont properties:', {
+                    base64Length: this.base64.length,
+                    charsLength: this.chars.length,
+                    cols: this.cols,
+                    rows: this.rows,
+                    bitsPerChar: this.bitsPerChar,
+                    totalBits: totalBits,
+                    totalPixels: totalPixels,
+                    bitsArrayLength: this.bits.length
+                });
+                
+                this.decode();
+                console.log('PixelFont decode completed');
+            }
+
+            decode() {
+                console.log('Starting PixelFont decode...');
+                
+                // Decode the entire base64 string at once
+                const allBits = this.base64ToBinary(this.base64);
+                console.log('Full base64 decoded to binary, length:', allBits.length);
+                
+                for (let i = 0; i < this.chars.length; i++) {
+                    const charStart = i * this.bitsPerChar;
+                    const blockOffset = i * this.bitsPerChar;
+                    
+                    if (i < 3) {
+                        console.log(`Decoding character ${i} ('${this.chars[i]}'), charStart: ${charStart}, blockOffset: ${blockOffset}`);
+                    }
+                    
+                    for (let j = 0; j < this.bitsPerChar && charStart + j < allBits.length; j++) {
+                        const bit = allBits[charStart + j];
+                        const v = bit === '1' ? 255 : 0;
+                        this.bits[blockOffset + j] = v;
+                    }
+                    
+                    if (i < 3) {
+                        console.log(`Character ${i} first 8 pixel values:`, Array.from(this.bits.slice(blockOffset, blockOffset + 8)));
+                    }
+                }
+                console.log('PixelFont decode completed');
+            }
+
+            base64ToBinary(base64String) {
+                console.log(`base64ToBinary input: ${base64String.substring(0, 20)}... (length: ${base64String.length})`);
+                try {
+                    const binaryString = atob(base64String);
+                    console.log(`atob result: length ${binaryString.length}`);
+                    let str = "";
+                    for (let i = 0; i < binaryString.length; i++) {
+                        str += binaryString.charCodeAt(i).toString(2).padStart(8, "0");
+                    }
+                    console.log(`base64ToBinary output: ${str.length} bits, first 32: ${str.substring(0, 32)}`);
+                    return str;
+                } catch (error) {
+                    console.error('base64ToBinary error:', error);
+                    console.error('Invalid base64 string:', base64String);
+                    throw error;
+                }
+            }
+
+            insertChar(char, imageData, x, y, gap = 1, alpha = 1) {
+                const { data } = imageData;
+                const charIndex = this.chars.indexOf(char);
+                if (charIndex === -1) return;
+                
+                const readStart = charIndex * this.cols * this.rows;
+                const invAlpha = 1 - alpha;
+                
+                if (x >= imageData.width) return;
+                
+                const topLeft = y * imageData.width + x;
+                
+                for (let row = 0; row < this.rows; row++) {
+                    const writeStart = topLeft + row * imageData.width;
+                    for (let col = 0; col < this.cols; col++) {
+                        const i = (writeStart + col) * 4;
+                        if (i >= 0 && i < data.length - 3) {
+                            const readBlock = readStart + (row * this.cols + col);
+                            const v = this.bits[readBlock] * alpha;
+                            data[i] = v + invAlpha * data[i];
+                            data[i + 1] = v + invAlpha * data[i + 1];
+                            data[i + 2] = v + invAlpha * data[i + 2];
+                            data[i + 3] = v > 0 ? 255 : data[i + 3];
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fixed Grid-based Text Editor class
+        class GridTextEditor {
+            constructor(canvas, font, gridCols = 60, gridRows = 15) {
+                console.log('GridTextEditor constructor called');
+                
+                this.canvas = canvas;
+                this.font = font;
+                this.gridCols = gridCols;
+                this.gridRows = gridRows;
+                this.scale = 2;
+                this.gap = 1;
+                this.ctx = canvas.getContext("2d");
+                
+                // Current cursor position
+                this.cursorCol = 0;
+                this.cursorRow = 0;
+                
+                // Grid data - 2D array of characters
+                this.grid = [];
+                for (let row = 0; row < this.gridRows; row++) {
+                    this.grid[row] = new Array(this.gridCols).fill(' ');
+                }
+                
+                // Cursor blinking
+                this.caretVisible = true;
+                this.caretBlinkInterval = 500;
+                
+                // Set up canvas dimensions
+                const charWidth = this.font.cols + this.gap;
+                const charHeight = this.font.rows + this.gap;
+                
+                canvas.width = charWidth * this.gridCols;
+                canvas.height = charHeight * this.gridRows;
+                canvas.style.width = canvas.width * this.scale + "px";
+                canvas.style.height = canvas.height * this.scale + "px";
+                
+                console.log('Canvas dimensions set:', canvas.width, 'x', canvas.height);
+                
+                this.imageData = new ImageData(canvas.width, canvas.height);
+                
+                // Initialize with some sample text
+                this.setInitialText("hello!");
+                
+                this.setupEventListeners();
+                this.setupCaretBlink();
+                this.render();
+                
+                canvas.focus();
+                console.log('GridTextEditor initialized');
+            }
+
+            setInitialText(text) {
+                const lines = text.split('\n');
+                for (let row = 0; row < Math.min(lines.length, this.gridRows); row++) {
+                    const line = lines[row];
+                    for (let col = 0; col < Math.min(line.length, this.gridCols); col++) {
+                        this.grid[row][col] = line[col];
+                    }
+                }
+            }
+
+            setupEventListeners() {
+                this.canvas.tabIndex = 0;
+                this.canvas.style.outline = 'none';
+                
+                // Click to position cursor
+                this.canvas.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    this.canvas.focus();
+                    
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = (e.clientX - rect.left) / this.scale;
+                    const y = (e.clientY - rect.top) / this.scale;
+                    
+                    const charWidth = this.font.cols + this.gap;
+                    const charHeight = this.font.rows + this.gap;
+                    
+                    this.cursorCol = Math.floor(x / charWidth);
+                    this.cursorRow = Math.floor(y / charHeight);
+                    
+                    // Clamp to valid positions
+                    this.cursorCol = Math.max(0, Math.min(this.cursorCol, this.gridCols - 1));
+                    this.cursorRow = Math.max(0, Math.min(this.cursorRow, this.gridRows - 1));
+                    
+                    // Reset caret visibility and render
+                    this.caretVisible = true;
+                    this.render();
+                    console.log(`Clicked at row: ${this.cursorRow}, col: ${this.cursorCol}`);
+                });
+
+                // Keyboard input
+                this.keydownHandler = (e) => {
+                    if (document.activeElement !== this.canvas) return;
+                    
+                    console.log(`Key pressed: ${e.key}`);
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Handle arrow keys
+                    if (e.key === "ArrowRight") {
+                        this.moveCursor(1, 0);
+                    } else if (e.key === "ArrowLeft") {
+                        this.moveCursor(-1, 0);
+                    } else if (e.key === "ArrowUp") {
+                        this.moveCursor(0, -1);
+                    } else if (e.key === "ArrowDown") {
+                        this.moveCursor(0, 1);
+                    } else if (e.key === "Home") {
+                        this.cursorCol = 0;
+                    } else if (e.key === "End") {
+                        this.cursorCol = this.gridCols - 1;
+                    } else if (e.key === "Backspace") {
+                        this.deleteChar();
+                    } else if (e.key === "Delete") {
+                        this.deleteCharForward();
+                    } else if (e.key === "Enter") {
+                        this.moveCursor(0, 1);
+                        this.cursorCol = 0;
+                    } else if (e.key.length === 1 && this.font.chars.includes(e.key)) {
+                        console.log(`Writing character: ${e.key}`);
+                        this.writeChar(e.key);
+                        this.moveCursor(1, 0);
+                    } else {
+                        console.log(`Unhandled key: ${e.key}`);
+                        return;
+                    }
+                    
+                    this.caretVisible = true;
+                    this.render();
+                };
+
+                document.addEventListener("keydown", this.keydownHandler);
+                
+                // Focus/blur events
+                this.canvas.addEventListener('focus', () => {
+                    console.log('Canvas focused');
+                    this.caretVisible = true;
+                    this.render();
+                });
+                
+                this.canvas.addEventListener('blur', () => {
+                    console.log('Canvas blurred');
+                });
+            }
+
+            moveCursor(deltaCol, deltaRow) {
+                this.cursorCol += deltaCol;
+                this.cursorRow += deltaRow;
+                
+                // Clamp to grid bounds
+                this.cursorCol = Math.max(0, Math.min(this.cursorCol, this.gridCols - 1));
+                this.cursorRow = Math.max(0, Math.min(this.cursorRow, this.gridRows - 1));
+            }
+
+            writeChar(char) {
+                if (this.cursorRow >= 0 && this.cursorRow < this.gridRows && 
+                    this.cursorCol >= 0 && this.cursorCol < this.gridCols) {
+                    this.grid[this.cursorRow][this.cursorCol] = char;
+                }
+            }
+
+            deleteChar() {
+                // Delete character at current position and move cursor left
+                if (this.cursorCol > 0) {
+                    this.cursorCol--;
+                    this.grid[this.cursorRow][this.cursorCol] = ' ';
+                } else if (this.cursorRow > 0) {
+                    // Move to end of previous line
+                    this.cursorRow--;
+                    this.cursorCol = this.gridCols - 1;
+                    this.grid[this.cursorRow][this.cursorCol] = ' ';
+                }
+            }
+
+            deleteCharForward() {
+                // Delete character at current position without moving cursor
+                this.grid[this.cursorRow][this.cursorCol] = ' ';
+            }
+
+            setupCaretBlink() {
+                if (this.blinkTimer) clearInterval(this.blinkTimer);
+                this.blinkTimer = setInterval(() => {
+                    this.caretVisible = !this.caretVisible;
+                    this.render();
+                }, this.caretBlinkInterval);
+            }
+
+            render() {
+                // Clear canvas with background color
+                this.imageData = new ImageData(this.canvas.width, this.canvas.height);
+                const data = this.imageData.data;
+                
+                // Fill with dark cyan background
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = 0;     // Red
+                    data[i + 1] = 51; // Green
+                    data[i + 2] = 51; // Blue
+                    data[i + 3] = 255; // Alpha
+                }
+                
+                // Render all characters
+                const charWidth = this.font.cols + this.gap;
+                const charHeight = this.font.rows + this.gap;
+                
+                for (let row = 0; row < this.gridRows; row++) {
+                    for (let col = 0; col < this.gridCols; col++) {
+                        const char = this.grid[row][col];
+                        if (char !== ' ') {
+                            const x = col * charWidth;
+                            const y = row * charHeight;
+                            this.font.insertChar(char, this.imageData, x, y, this.gap);
+                        }
+                    }
+                }
+                
+                // Draw cursor as highlighted block
+                if (this.caretVisible) {
+                    this.drawCursor();
+                }
+                
+                this.ctx.putImageData(this.imageData, 0, 0);
+            }
+
+            drawCursor() {
+                const charWidth = this.font.cols + this.gap;
+                const charHeight = this.font.rows + this.gap;
+                const x = this.cursorCol * charWidth;
+                const y = this.cursorRow * charHeight;
+                
+                // Draw cursor as a highlighted block
+                const { data } = this.imageData;
+                const startX = x;
+                const startY = y;
+                const endX = Math.min(startX + this.font.cols, this.imageData.width);
+                const endY = Math.min(startY + this.font.rows, this.imageData.height);
+                
+                for (let py = startY; py < endY; py++) {
+                    for (let px = startX; px < endX; px++) {
+                        const i = (py * this.imageData.width + px) * 4;
+                        if (i >= 0 && i < data.length - 3) {
+                            // Invert the colors to create highlight effect
+                            data[i] = 255 - data[i];       // Red
+                            data[i + 1] = 255 - data[i + 1]; // Green
+                            data[i + 2] = 255 - data[i + 2]; // Blue
+                            // Alpha stays the same
+                        }
+                    }
+                }
+            }
+
+            destroy() {
+                if (this.blinkTimer) {
+                    clearInterval(this.blinkTimer);
+                }
+                if (this.keydownHandler) {
+                    document.removeEventListener("keydown", this.keydownHandler);
+                }
+            }
+        }
+        
+        class Font64cParser {
+            constructor() {
+                this.fontData = null;
+                this.cols = 8;
+                this.rows = 8;
+            }
+            
+            parse(arrayBuffer, cols, rows) {
+                this.cols = cols;
+                this.rows = rows;
+                
+                const data = new Uint8Array(arrayBuffer);
+                const fontBytes = data.slice(2);
+                const bytesPerChar = (rows / 8) * (cols / 8) * 8;
+                const maxChars = Math.min(256, Math.floor(fontBytes.length / bytesPerChar));
+                
+                this.fontData = fontBytes;
+                return this.createPixelFontData(maxChars, bytesPerChar);
+            }
+            
+            createPixelFontData(charCount, bytesPerChar) {
+                const chars = CHARSET.slice(0, Math.min(charCount, CHARSET.length));
+                let binaryString = '';
+                const bitsPerChar = this.cols * this.rows;
+                
+                for (let charIndex = 0; charIndex < chars.length; charIndex++) {
+                    const charBits = this.extractCharacterBits(charIndex, bytesPerChar);
+                    const paddedBits = charBits.padEnd(bitsPerChar, '0').slice(0, bitsPerChar);
+                    binaryString += paddedBits;
+                }
+                
+                const base64 = this.binaryToBase64(binaryString);
+                
+                const result = {
+                    base64: base64,
+                    chars: chars,
+                    cols: this.cols,
+                    rows: this.rows
+                };
+                
+                return result;
+            }
+            
+            extractCharacterBits(charIndex, bytesPerChar) {
+                const startOffset = charIndex * bytesPerChar;
+                let bits = '';
+                
+                if (charIndex < 3) {
+                    console.log(`Extracting character ${charIndex}, startOffset: ${startOffset}, bytesPerChar: ${bytesPerChar}`);
+                }
+                
+                if (this.cols === 8 && this.rows === 8) {
+                    for (let row = 0; row < 8; row++) {
+                        const byte = this.fontData[startOffset + row] || 0;
+                        if (charIndex < 3 && row < 3) {
+                            console.log(`Char ${charIndex}, row ${row}: byte ${byte} (0x${byte.toString(16).padStart(2, '0')})`);
+                        }
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte >> bit) & 1;
+                        }
+                    }
+                } else if (this.cols === 16 && this.rows === 8) {
+                    for (let row = 0; row < 8; row++) {
+                        const byte1 = this.fontData[startOffset + row] || 0;
+                        const byte2 = this.fontData[startOffset + row + 8] || 0;
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte1 >> bit) & 1;
+                        }
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte2 >> bit) & 1;
+                        }
+                    }
+                } else if (this.cols === 8 && this.rows === 16) {
+                    for (let row = 0; row < 16; row++) {
+                        const byte = this.fontData[startOffset + row] || 0;
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte >> bit) & 1;
+                        }
+                    }
+                } else if (this.cols === 16 && this.rows === 16) {
+                    for (let row = 0; row < 16; row++) {
+                        const quadrantRow = Math.floor(row / 8);
+                        const localRow = row % 8;
+                        const quadrantOffset = quadrantRow * 16;
+                        
+                        const byte1 = this.fontData[startOffset + quadrantOffset + localRow] || 0;
+                        const byte2 = this.fontData[startOffset + quadrantOffset + localRow + 8] || 0;
+                        
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte1 >> bit) & 1;
+                        }
+                        for (let bit = 7; bit >= 0; bit--) {
+                            bits += (byte2 >> bit) & 1;
+                        }
+                    }
+                }
+                
+                if (charIndex < 3) {
+                    console.log(`Character ${charIndex} extracted ${bits.length} bits, first 32:`, bits.substring(0, 32));
+                }
+                
+                return bits;
+            }
+            
+            binaryToBase64(binaryString) {
+                while (binaryString.length % 6 !== 0) {
+                    binaryString += '0';
+                }
+                
+                let result = '';
+                const base64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+                
+                for (let i = 0; i < binaryString.length; i += 6) {
+                    const chunk = binaryString.substr(i, 6);
+                    const decimal = parseInt(chunk, 2);
+                    result += base64Chars[decimal];
+                }
+                
+                while (result.length % 4 !== 0) {
+                    result += '=';
+                }
+                
+                return result;
+            }
+        }
+        
+        function parseFont() {
+            const fileInput = document.getElementById('fileInput');
+            const fontSizeSelect = document.getElementById('fontSize');
+            
+            if (!fileInput.files[0]) {
+                updateStatus('Please select a .64c file', 'error');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            [cols, rows] = fontSizeSelect.value.split('x').map(Number);
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    fontData = new Uint8Array(e.target.result);
+                    const parser = new Font64cParser();
+                    parsedFont = parser.parse(e.target.result, cols, rows);
+                    
+                    document.getElementById('jsonOutput').value = JSON.stringify(parsedFont, null, 2);
+                    createPreview();
+                    
+                    const totalChars = Math.floor((fontData.length - 2) / getBytesPerChar());
+                    updateStatus(`Successfully parsed font: ${cols}x${rows}, ${totalChars} total characters, ${parsedFont.chars.length} mapped to charset`, 'success');
+                } catch (error) {
+                    updateStatus(`Error parsing font: ${error.message}`, 'error');
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+        
+        function getBytesPerChar() {
+            return (rows / 8) * (cols / 8) * 8;
+        }
+        
+        function createPreview() {
+            createCharacterGrid();
+            setupEditorCanvas();
+            updateTestEditor();
+        }
+        
+        function setupEditorCanvas() {
+            const canvas = document.getElementById('editorCanvas');
+            if (!canvas) return;
+            
+            canvas.onmousemove = null;
+            canvas.onmousedown = null;
+            canvas.onmouseup = null;
+            canvas.onmouseleave = null;
+            
+            canvas.addEventListener('mousemove', handleCanvasMouseMove);
+            canvas.addEventListener('mousedown', handleCanvasMouseDown);
+            canvas.addEventListener('mouseup', handleCanvasMouseUp);
+            canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                return false;
+            });
+        }
+        
+        function getPixelCoordinates(canvas, e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = Math.floor((e.clientX - rect.left) * scaleX / pixelSize);
+            const y = Math.floor((e.clientY - rect.top) * scaleY / pixelSize);
+            
+            return { x, y };
+        }
+        
+        function handleCanvasMouseMove(e) {
+            if (!currentCharData) return;
+            
+            const canvas = e.target;
+            const coords = getPixelCoordinates(canvas, e);
+            
+            if (coords.x >= 0 && coords.x < cols && coords.y >= 0 && coords.y < rows) {
+                drawEditor(coords.x, coords.y);
+                
+                if (isMouseDown) {
+                    setPixel(coords.x, coords.y, paintMode);
+                }
+            } else {
+                drawEditor();
+            }
+        }
+        
+        function handleCanvasMouseDown(e) {
+            if (!currentCharData) return;
+            
+            e.preventDefault();
+            isMouseDown = true;
+            
+            const coords = getPixelCoordinates(e.target, e);
+            
+            if (coords.x >= 0 && coords.x < cols && coords.y >= 0 && coords.y < rows) {
+                const currentPixel = currentCharData[coords.y * cols + coords.x];
+                
+                if (e.button === 0) {
+                    paintMode = currentPixel ? 0 : 1;
+                } else if (e.button === 2) {
+                    paintMode = 0;
+                }
+                
+                setPixel(coords.x, coords.y, paintMode);
+            }
+        }
+        
+        function handleCanvasMouseUp(e) {
+            isMouseDown = false;
+        }
+        
+        function handleCanvasMouseLeave(e) {
+            isMouseDown = false;
+            drawEditor();
+        }
+        
+        function setPixel(x, y, value) {
+            if (!currentCharData || x < 0 || x >= cols || y < 0 || y >= rows) return;
+            
+            const index = y * cols + x;
+            if (currentCharData[index] !== value) {
+                currentCharData[index] = value;
+                updateCharacterInFont();
+                updateGridCharacter();
+            }
+        }
+        
+        function createCharacterGrid() {
+            const gridDiv = document.getElementById('charGrid');
+            if (!gridDiv) throw new Error('Grid container element not found');
+            
+            gridDiv.innerHTML = '';
+            
+            if (!fontData || !parsedFont) throw new Error('No font data available');
+            
+            const maxCols = 16;
+            const totalChars = Math.min(256, Math.floor((fontData.length - 2) / getBytesPerChar()));
+            
+            gridDiv.style.gridTemplateColumns = `repeat(${Math.min(totalChars, maxCols)}, 1fr)`;
+            
+            for (let i = 0; i < totalChars; i++) {
+                const canvas = document.createElement('canvas');
+                
+                canvas.className = 'char-preview';
+                canvas.width = Math.max(cols, 20);
+                canvas.height = Math.max(rows, 20);
+                canvas.dataset.charIndex = i;
+                
+                const char = i < parsedFont.chars.length ? parsedFont.chars[i] : '';
+                const displayChar = char || `#${i}`;
+                canvas.title = `Index: ${i}, Char: '${displayChar}' (0x${i.toString(16).padStart(2, '0').toUpperCase()})`;
+                
+                const ctx = canvas.getContext('2d');
+                
+                ctx.fillStyle = '#444';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                const imageData = ctx.createImageData(canvas.width, canvas.height);
+                renderCharacterFromIndex(i, imageData, cols, rows);
+                ctx.putImageData(imageData, 0, 0);
+                
+                ctx.fillStyle = '#666';
+                ctx.font = '8px monospace';
+                ctx.fillText(i.toString(), 1, canvas.height - 1);
+                
+                canvas.addEventListener('click', () => editCharacter(i));
+                gridDiv.appendChild(canvas);
+            }
+            
+            updateStatus(`Showing ${totalChars} characters from font file`, 'info');
+        }
+        
+        function renderCharacterFromIndex(charIndex, imageData, cols, rows) {
+            const bytesPerChar = getBytesPerChar();
+            const startOffset = charIndex * bytesPerChar + 2;
+            
+            if (startOffset >= fontData.length) return;
+            
+            const { data } = imageData;
+            
+            if (cols === 8 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    const byteIndex = startOffset + row;
+                    const byte = byteIndex < fontData.length ? fontData[byteIndex] : 0;
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + col) * 4;
+                        
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                }
+            } else if (cols === 16 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    const byte1Index = startOffset + row;
+                    const byte2Index = startOffset + row + 8;
+                    const byte1 = byte1Index < fontData.length ? fontData[byte1Index] : 0;
+                    const byte2 = byte2Index < fontData.length ? fontData[byte2Index] : 0;
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte1 >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + col) * 4;
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte2 >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + (col + 8)) * 4;
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                }
+            } else if (cols === 8 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    const byteIndex = startOffset + row;
+                    const byte = byteIndex < fontData.length ? fontData[byteIndex] : 0;
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + col) * 4;
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                }
+            } else if (cols === 16 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    const quadrantRow = Math.floor(row / 8);
+                    const localRow = row % 8;
+                    const quadrantOffset = quadrantRow * 16;
+                    
+                    const byte1Index = startOffset + quadrantOffset + localRow;
+                    const byte2Index = startOffset + quadrantOffset + localRow + 8;
+                    const byte1 = byte1Index < fontData.length ? fontData[byte1Index] : 0;
+                    const byte2 = byte2Index < fontData.length ? fontData[byte2Index] : 0;
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte1 >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + col) * 4;
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                    
+                    for (let col = 0; col < 8; col++) {
+                        const bit = (byte2 >> (7 - col)) & 1;
+                        const pixelIndex = (row * imageData.width + (col + 8)) * 4;
+                        if (pixelIndex + 3 < data.length) {
+                            const value = bit ? 255 : 0;
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function editCharacter(charIndex) {
+            currentEditIndex = charIndex;
+            currentCharData = getCharacterData(charIndex);
+            
+            const char = charIndex < parsedFont.chars.length ? parsedFont.chars[charIndex] : '';
+            const displayChar = char || `#${charIndex}`;
+            document.getElementById('currentCharInfo').textContent = 
+                `Editing: Index ${charIndex}, Char: '${displayChar}' (0x${charIndex.toString(16).padStart(2, '0').toUpperCase()})`;
+            
+            document.getElementById('editorControls').style.display = 'block';
+            updateGridSelection(charIndex);
+            drawEditor();
+        }
+        
+        function getCharacterData(charIndex) {
+            const bytesPerChar = getBytesPerChar();
+            const startOffset = charIndex * bytesPerChar + 2;
+            const data = new Array(cols * rows).fill(0);
+            
+            if (startOffset >= fontData.length) return data;
+            
+            if (cols === 8 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    const byte = fontData[startOffset + row] || 0;
+                    for (let col = 0; col < 8; col++) {
+                        data[row * 8 + col] = (byte >> (7 - col)) & 1;
+                    }
+                }
+            } else if (cols === 16 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    const byte1 = fontData[startOffset + row] || 0;
+                    const byte2 = fontData[startOffset + row + 8] || 0;
+                    for (let col = 0; col < 8; col++) {
+                        data[row * 16 + col] = (byte1 >> (7 - col)) & 1;
+                        data[row * 16 + col + 8] = (byte2 >> (7 - col)) & 1;
+                    }
+                }
+            } else if (cols === 8 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    const byte = fontData[startOffset + row] || 0;
+                    for (let col = 0; col < 8; col++) {
+                        data[row * 8 + col] = (byte >> (7 - col)) & 1;
+                    }
+                }
+            } else if (cols === 16 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    const quadrantRow = Math.floor(row / 8);
+                    const localRow = row % 8;
+                    const quadrantOffset = quadrantRow * 16;
+                    
+                    const byte1 = fontData[startOffset + quadrantOffset + localRow] || 0;
+                    const byte2 = fontData[startOffset + quadrantOffset + localRow + 8] || 0;
+                    
+                    for (let col = 0; col < 8; col++) {
+                        data[row * 16 + col] = (byte1 >> (7 - col)) & 1;
+                        data[row * 16 + col + 8] = (byte2 >> (7 - col)) & 1;
+                    }
+                }
+            }
+            
+            return data;
+        }
+        
+        function updateGridSelection(selectedIndex) {
+            document.querySelectorAll('.char-preview').forEach(canvas => {
+                canvas.style.borderColor = '#666';
+            });
+            
+            const selectedCanvas = document.querySelector(`[data-char-index="${selectedIndex}"]`);
+            if (selectedCanvas) {
+                selectedCanvas.style.borderColor = '#6bc4cd';
+                selectedCanvas.style.borderWidth = '2px';
+            }
+        }
+        
+        function drawEditor(hoverX = -1, hoverY = -1) {
+            if (!currentCharData) return;
+            
+            const canvas = document.getElementById('editorCanvas');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            pixelSize = Math.floor(Math.min(256 / cols, 256 / rows));
+            canvas.width = cols * pixelSize;
+            canvas.height = rows * pixelSize;
+            canvas.style.width = canvas.width + 'px';
+            canvas.style.height = canvas.height + 'px';
+            
+            ctx.fillStyle = '#003333';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const x = col * pixelSize;
+                    const y = row * pixelSize;
+                    
+                    const pixelValue = currentCharData[row * cols + col];
+                    let fillColor = pixelValue ? '#ffffff' : '#003333';
+                    
+                    if (col === hoverX && row === hoverY) {
+                        fillColor = pixelValue ? '#cccccc' : '#444444';
+                    }
+                    
+                    ctx.fillStyle = fillColor;
+                    ctx.fillRect(x, y, pixelSize, pixelSize);
+                    
+                    ctx.strokeStyle = '#666';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, pixelSize, pixelSize);
+                    
+                    if (col === hoverX && row === hoverY) {
+                        ctx.strokeStyle = '#6bc4cd';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x, y, pixelSize, pixelSize);
+                    }
+                }
+            }
+        }
+        
+        function shiftCharacter(direction) {
+            if (!currentCharData) return;
+            
+            const newData = new Array(cols * rows).fill(0);
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    let newRow = row;
+                    let newCol = col;
+                    
+                    switch (direction) {
+                        case 'up':
+                            newRow = (row - 1 + rows) % rows;
+                            break;
+                        case 'down':
+                            newRow = (row + 1) % rows;
+                            break;
+                        case 'left':
+                            newCol = (col - 1 + cols) % cols;
+                            break;
+                        case 'right':
+                            newCol = (col + 1) % cols;
+                            break;
+                    }
+                    
+                    newData[newRow * cols + newCol] = currentCharData[row * cols + col];
+                }
+            }
+            
+            currentCharData = newData;
+            updateCharacterInFont();
+            drawEditor();
+            updateGridCharacter();
+        }
+        
+        function clearCharacter() {
+            if (!currentCharData) return;
+            currentCharData.fill(0);
+            updateCharacterInFont();
+            drawEditor();
+            updateGridCharacter();
+        }
+        
+        function invertCharacter() {
+            if (!currentCharData) return;
+            for (let i = 0; i < currentCharData.length; i++) {
+                currentCharData[i] = currentCharData[i] ? 0 : 1;
+            }
+            updateCharacterInFont();
+            drawEditor();
+            updateGridCharacter();
+        }
+        
+        function rotateCharacter() {
+            if (!currentCharData) return;
+            
+            if (cols !== rows) {
+                updateStatus('Rotation only supported for square fonts (8x8, 16x16)', 'error');
+                return;
+            }
+            
+            const newData = new Array(cols * rows).fill(0);
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const oldIndex = row * cols + col;
+                    const newRow = col;
+                    const newCol = rows - 1 - row;
+                    const newIndex = newRow * cols + newCol;
+                    newData[newIndex] = currentCharData[oldIndex];
+                }
+            }
+            
+            currentCharData = newData;
+            updateCharacterInFont();
+            drawEditor();
+            updateGridCharacter();
+        }
+        
+        function updateCharacterInFont() {
+            if (currentEditIndex === -1 || !currentCharData) return;
+            
+            const bytesPerChar = getBytesPerChar();
+            const startOffset = currentEditIndex * bytesPerChar + 2;
+            
+            if (cols === 8 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    let byte = 0;
+                    for (let col = 0; col < 8; col++) {
+                        if (currentCharData[row * 8 + col]) {
+                            byte |= (1 << (7 - col));
+                        }
+                    }
+                    fontData[startOffset + row] = byte;
+                }
+            } else if (cols === 16 && rows === 8) {
+                for (let row = 0; row < 8; row++) {
+                    let byte1 = 0, byte2 = 0;
+                    for (let col = 0; col < 8; col++) {
+                        if (currentCharData[row * 16 + col]) {
+                            byte1 |= (1 << (7 - col));
+                        }
+                        if (currentCharData[row * 16 + col + 8]) {
+                            byte2 |= (1 << (7 - col));
+                        }
+                    }
+                    fontData[startOffset + row] = byte1;
+                    fontData[startOffset + row + 8] = byte2;
+                }
+            } else if (cols === 8 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    let byte = 0;
+                    for (let col = 0; col < 8; col++) {
+                        if (currentCharData[row * 8 + col]) {
+                            byte |= (1 << (7 - col));
+                        }
+                    }
+                    fontData[startOffset + row] = byte;
+                }
+            } else if (cols === 16 && rows === 16) {
+                for (let row = 0; row < 16; row++) {
+                    const quadrantRow = Math.floor(row / 8);
+                    const localRow = row % 8;
+                    const quadrantOffset = quadrantRow * 16;
+                    
+                    let byte1 = 0, byte2 = 0;
+                    for (let col = 0; col < 8; col++) {
+                        if (currentCharData[row * 16 + col]) {
+                            byte1 |= (1 << (7 - col));
+                        }
+                        if (currentCharData[row * 16 + col + 8]) {
+                            byte2 |= (1 << (7 - col));
+                        }
+                    }
+                    fontData[startOffset + quadrantOffset + localRow] = byte1;
+                    fontData[startOffset + quadrantOffset + localRow + 8] = byte2;
+                }
+            }
+            
+            regenerateJSON();
+        }
+        
+        function updateGridCharacter() {
+            const canvas = document.querySelector(`[data-char-index="${currentEditIndex}"]`);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#444';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            renderCharacterFromIndex(currentEditIndex, imageData, cols, rows);
+            ctx.putImageData(imageData, 0, 0);
+            
+            ctx.fillStyle = '#666';
+            ctx.font = '8px monospace';
+            ctx.fillText(currentEditIndex.toString(), 1, canvas.height - 1);
+        }
+        
+        function regenerateJSON() {
+            if (!fontData) return;
+            
+            const parser = new Font64cParser();
+            parsedFont = parser.parse(fontData.buffer, cols, rows);
+            document.getElementById('jsonOutput').value = JSON.stringify(parsedFont, null, 2);
+            
+            updateTestEditor();
+        }
+        
+        function updateTestEditor() {
+            console.log('updateTestEditor() called');
+            
+            const testCanvas = document.getElementById('testCanvas');
+            
+            if (parsedFont) {
+                console.log('Creating test editor with parsed font');
+                try {
+                    // Destroy existing editor
+                    if (textEditor) {
+                        console.log('Destroying existing text editor');
+                        textEditor.destroy();
+                    }
+                    
+                    // Create new PixelFont instance
+                    const pixelFont = new PixelFont(parsedFont);
+                    
+                    // Create new grid-based text editor
+                    textEditor = new GridTextEditor(testCanvas, pixelFont, 60, 15);
+                    
+                    updateStatus('Font test editor updated - Click any cell to position cursor and start typing!', 'success');
+                } catch (error) {
+                    console.error('Error updating test editor:', error);
+                    updateStatus('Error updating test editor: ' + error.message, 'error');
+                }
+            } else {
+                console.log('No parsed font available, showing placeholder');
+                const ctx = testCanvas.getContext('2d');
+                testCanvas.width = 600;
+                testCanvas.height = 200;
+                testCanvas.style.width = '600px';
+                testCanvas.style.height = '200px';
+                
+                ctx.fillStyle = '#003333';
+                ctx.fillRect(0, 0, testCanvas.width, testCanvas.height);
+                
+                ctx.fillStyle = '#666';
+                ctx.font = '16px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('Load a .64c font file to test it here', testCanvas.width / 2, testCanvas.height / 2);
+                
+                if (textEditor) {
+                    textEditor.destroy();
+                    textEditor = null;
+                }
+            }
+        }
+        
+        function downloadJSON() {
+            if (!parsedFont) {
+                updateStatus('No font data to download', 'error');
+                return;
+            }
+            
+            const dataStr = JSON.stringify(parsedFont, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = 'pixelfont.json';
+            link.click();
+            
+            updateStatus('JSON file downloaded', 'success');
+        }
+        
+        function copyToClipboard() {
+            const textarea = document.getElementById('jsonOutput');
+            if (!textarea.value) {
+                updateStatus('No font data to copy', 'error');
+                return;
+            }
+            
+            textarea.select();
+            document.execCommand('copy');
+            updateStatus('JSON copied to clipboard', 'success');
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `info ${type}`;
+        }
+        
+        // Initialize test canvas placeholder
+        function initializeTestCanvas() {
+            console.log('initializeTestCanvas() called');
+            const testCanvas = document.getElementById('testCanvas');
+            
+            if (!parsedFont) {
+                console.log('No parsed font, showing placeholder');
+                const ctx = testCanvas.getContext('2d');
+                testCanvas.width = 600;
+                testCanvas.height = 200;
+                testCanvas.style.width = '600px';
+                testCanvas.style.height = '200px';
+                
+                ctx.fillStyle = '#003333';
+                ctx.fillRect(0, 0, testCanvas.width, testCanvas.height);
+                
+                ctx.fillStyle = '#666';
+                ctx.font = '16px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('Load a .64c font file to test it here', testCanvas.width / 2, testCanvas.height / 2);
+                console.log('Placeholder message drawn');
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded');
+            initializeTestCanvas();
+        });
+        
+        // Also call it immediately in case DOM is already loaded
+        initializeTestCanvas();
+        
+        // Handle file drop
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].name.endsWith('.64c')) {
+                document.getElementById('fileInput').files = files;
+                parseFont();
+            }
+        });
+    </script>
+</body>
+</html>
