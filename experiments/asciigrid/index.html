@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Grid Sequencer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        * {
+            cursor: none !important;
+        }
+
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: monospace;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #ascii-canvas {
+            background: #000;
+            image-rendering: pixelated;
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="ascii-canvas"></canvas>
+
+    <script>
+
+             // PixelFont class
+         class PixelFont {
+            constructor(font) {
+                console.log('PixelFont constructor called with font:', font);
+                const { base64, chars, cols, rows } = font;
+                console.log('Destructured font data:', { base64: base64.substring(0, 50) + '...', chars: chars.substring(0, 20) + '...', cols, rows });
+                
+                this.base64 = base64;
+                this.chars = chars;
+                this.cols = cols;
+                this.rows = rows;
+                this.bitsPerChar = this.cols * this.rows;
+                
+                // Calculate how many bits we need total
+                const totalBits = this.bitsPerChar * this.chars.length;
+                const totalPixels = this.cols * this.rows * this.chars.length;
+                this.bits = new Uint8Array(totalPixels);
+                
+                console.log('PixelFont properties:', {
+                    base64Length: this.base64.length,
+                    charsLength: this.chars.length,
+                    cols: this.cols,
+                    rows: this.rows,
+                    bitsPerChar: this.bitsPerChar,
+                    totalBits: totalBits,
+                    totalPixels: totalPixels,
+                    bitsArrayLength: this.bits.length
+                });
+                
+                this.decode();
+                console.log('PixelFont decode completed');
+            }
+
+            decode() {
+                console.log('Starting PixelFont decode...');
+                
+                // Decode the entire base64 string at once
+                const allBits = this.base64ToBinary(this.base64);
+                console.log('Full base64 decoded to binary, length:', allBits.length);
+                
+                for (let i = 0; i < this.chars.length; i++) {
+                    const charStart = i * this.bitsPerChar;
+                    const blockOffset = i * this.bitsPerChar;
+                    
+                    if (i < 3) {
+                        console.log(`Decoding character ${i} ('${this.chars[i]}'), charStart: ${charStart}, blockOffset: ${blockOffset}`);
+                    }
+                    
+                    for (let j = 0; j < this.bitsPerChar && charStart + j < allBits.length; j++) {
+                        const bit = allBits[charStart + j];
+                        const v = bit === '1' ? 255 : 0;
+                        this.bits[blockOffset + j] = v;
+                    }
+                    
+                    if (i < 3) {
+                        console.log(`Character ${i} first 8 pixel values:`, Array.from(this.bits.slice(blockOffset, blockOffset + 8)));
+                    }
+                }
+                console.log('PixelFont decode completed');
+            }
+
+            base64ToBinary(base64String) {
+                console.log(`base64ToBinary input: ${base64String.substring(0, 20)}... (length: ${base64String.length})`);
+                try {
+                    const binaryString = atob(base64String);
+                    console.log(`atob result: length ${binaryString.length}`);
+                    let str = "";
+                    for (let i = 0; i < binaryString.length; i++) {
+                        str += binaryString.charCodeAt(i).toString(2).padStart(8, "0");
+                    }
+                    console.log(`base64ToBinary output: ${str.length} bits, first 32: ${str.substring(0, 32)}`);
+                    return str;
+                } catch (error) {
+                    console.error('base64ToBinary error:', error);
+                    console.error('Invalid base64 string:', base64String);
+                    throw error;
+                }
+            }
+
+            insertChar(char, imageData, x, y, gap = 1, alpha = 1) {
+                const { data } = imageData;
+                const charIndex = this.chars.indexOf(char);
+                if (charIndex === -1) return;
+                
+                const readStart = charIndex * this.cols * this.rows;
+                const invAlpha = 1 - alpha;
+                
+                if (x >= imageData.width) return;
+                
+                const topLeft = y * imageData.width + x;
+                
+                for (let row = 0; row < this.rows; row++) {
+                    const writeStart = topLeft + row * imageData.width;
+                    for (let col = 0; col < this.cols; col++) {
+                        const i = (writeStart + col) * 4;
+                        if (i >= 0 && i < data.length - 3) {
+                            const readBlock = readStart + (row * this.cols + col);
+                            const v = this.bits[readBlock] * alpha;
+                            data[i] = v + invAlpha * data[i];
+                            data[i + 1] = v + invAlpha * data[i + 1];
+                            data[i + 2] = v + invAlpha * data[i + 2];
+                            data[i + 3] = v > 0 ? 255 : data[i + 3];
+                        }
+                    }
+                }
+            }
+
+            insertText(text, imageData, x, y, spacing = 1) {
+                let currentX = x;
+                for (let i = 0; i < text.length; i++) {
+                    const char = text[i];
+                    if (char === ' ') {
+                        currentX += this.cols + spacing;
+                    } else {
+                        this.insertChar(char, imageData, currentX, y);
+                        currentX += this.cols + spacing;
+                    }
+                }
+            }
+        }
+        
+      const pixelFont = new PixelFont({
+  "base64": "PGZubmBiPAAAADwGPmY+AABgYHxmZnwAAAA8YGBgPAAABgY+ZmY+AAAAPGZ+YDwAAA4YPhgYGAAAAD5mZj4GfABgYHxmZmYAABgAOBgYPAAABgAGBgYGPABgYGx4bGYAADgYGBgYPAAAAGZ/f2tjAAAAfGZmZmYAAAA8ZmZmPAAAAHxmZnxgYAAAPmZmPgYGAAB8ZmBgYAAAAD5gPAZ8AAAYfhgYGA4AAABmZmZmPgAAAGZmZjwYAAAAY2t/PjYAAABmPBg8ZgAAAGZmZj4MeAAAfgwYMH4APDAwMDAwPAAMEjB8MGL8ADwMDAwMDDwAABg8fhgYGBgAEDB/fzAQAAAAAAAAAAAAGBgYGAAAGABmZmYAAAAAAGZm/2b/ZmYAGD5gPAZ8GABiZgwYMGZGADxmPDhnZj8ABgwYAAAAAAAMGDAwMBgMADAYDAwMGDAAAGY8/zxmAAAAGBh+GBgAAAAAAAAAGBgwAAAAfgAAAAAAAAAAABgYAAADBgwYMGAAPGZudmZmPAAYGDgYGBh+ADxmBgwwYH4APGYGHAZmPAAGDh5mfwYGAH5gfAYGZjwAPGZgfGZmPAB+ZgwYGBgYADxmZjxmZjwAPGZmPgZmPAAAABgAABgAAAAAGAAAGBgwDhgwYDAYDgAAAH4AfgAAAHAYDAYMGHAAPGYGDBgAGAAAAAD//wAAABg8Zn5mZmYAfGZmfGZmfAA8ZmBgYGY8AHhsZmZmbHgAfmBgeGBgfgB+YGB4YGBgADxmYG5mZjwAZmZmfmZmZgA8GBgYGBg8AB4MDAwMbDgAZmx4cHhsZgBgYGBgYGB+AGN3f2tjY2MAZnZ+fm5mZgA8ZmZmZmY8AHxmZnxgYGAAPGZmZmY8DgB8ZmZ8eGxmADxmYDwGZjwAfhgYGBgYGABmZmZmZmY8AGZmZmZmPBgAY2Nja393YwBmZjwYPGZmAGZmZjwYGBgAfgYMGDBgfgAYGBj//xgYGMDAMDDAwDAwGBgYGBgYGBgzM8zMMzPMzA==",
+  "chars": "@abcdefghijklmnopqrstuvwxyz[£]^_ !\"#$%&'()*+,-./0123456789:;<=>?`ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^",
+  "cols": 8,
+  "rows": 8
+});
+
+        // ASCII Grid Sequencer
+        class ASCIIGridSequencer {
+            constructor() {
+                this.canvas = document.getElementById('ascii-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.font = pixelFont;
+                
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                
+                this.charWidth = 12;
+                this.charHeight = 12;
+                this.spacing = 1;
+                this.cellWidth = this.charWidth + this.spacing;
+                this.cellHeight = this.charHeight + this.spacing;
+                
+                // Calculate data-oriented layout
+                this.initializeLayout();
+                
+                // State
+                this.cursorArea = 'GRID';
+                this.cursorCol = 0;
+                this.cursorRow = 0;
+                this.cursorIndex = 0;
+                this.virtualCol = this.gridStartCol;
+                this.virtualRow = this.gridStartRow;
+                
+                this.currentStep = 0;
+                this.isPlaying = false;
+                this.selectedChar = 'A';
+                this.bpm = 120;
+                this.mode = 'DRAW';
+                this.isMouseDown = false;
+                this.isDrawing = false;
+                
+                this.isSelecting = false;
+                this.selectionStartCol = 0;
+                this.selectionStartRow = 0;
+                this.selectionEndCol = 0;
+                this.selectionEndRow = 0;
+                this.hasSelection = false;
+                this.clipboard = [];
+                
+                this.cursorVisible = true;
+                setInterval(() => {
+                    this.cursorVisible = !this.cursorVisible;
+                    this.render();
+                }, 500);
+                
+                this.controls = ['PLAY', 'CLEAR', 'BPM', 'MODE'];
+                
+                // Initialize grid
+                this.grid = [];
+                for (let row = 0; row < this.gridRows; row++) {
+                    this.grid[row] = [];
+                    for (let col = 0; col < this.gridCols; col++) {
+                        this.grid[row][col] = ' ';
+                    }
+                }
+                
+                this.setupAudio();
+                this.setupEvents();
+                this.render();
+            }
+
+            initializeLayout() {
+                // Calculate total grid cells available
+                this.totalCols = Math.floor(this.canvas.width / this.cellWidth);
+                this.totalRows = Math.floor(this.canvas.height / this.cellHeight);
+                
+                // Reserve space according to rules:
+                // Top: 2 rows (title + separator)
+                this.topRows = 2;
+                this.titleRow = 0;
+                this.topSeparatorRow = 1;
+                
+                // Bottom: 4 rows (separator + controls + separator + help)
+                this.bottomRows = 4;
+                this.bottomSeparatorRow = this.totalRows - 4;
+                this.controlsRow = this.totalRows - 3;
+                this.bottomSeparatorRow2 = this.totalRows - 2;
+                this.helpRow = this.totalRows - 1;
+                
+                // Calculate palette layout (row-major, default 5 columns)
+                this.paletteChars = this.font.chars.length + 1; // +1 for erase character
+                this.availableRows = this.totalRows - this.topRows - this.bottomRows;
+                this.paletteMinCols = 5; // Default to 5 columns
+                
+                // Calculate optimal columns for row-major layout (start with 5)
+                this.paletteCols = this.paletteMinCols;
+                this.paletteRows = Math.ceil(this.paletteChars / this.paletteCols);
+                
+                // Ensure palette fits in available rows
+                while (this.paletteRows > this.availableRows && this.paletteCols < 20) {
+                    this.paletteCols++;
+                    this.paletteRows = Math.ceil(this.paletteChars / this.paletteCols);
+                }
+                
+                // Calculate main grid area
+                this.gridStartCol = 1; // Leave 1 column margin
+                this.gridStartRow = this.topRows;
+                this.gridCols = this.totalCols - this.paletteCols - 3 - 3 - 1; // 3 empty cols + 3 margins + separator
+                this.gridRows = this.availableRows;
+                
+                // Calculate palette area (3 empty columns before palette)
+                this.paletteStartCol = this.gridStartCol + this.gridCols + 1 + 3; // +1 separator +3 empty cols
+                this.paletteStartRow = this.topRows;
+                
+                console.log('Layout:', {
+                    totalCols: this.totalCols,
+                    totalRows: this.totalRows,
+                    gridCols: this.gridCols,
+                    gridRows: this.gridRows,
+                    paletteCols: this.paletteCols,
+                    paletteRows: this.paletteRows,
+                    paletteChars: this.paletteChars,
+                    paletteStart: [this.paletteStartCol, this.paletteStartRow]
+                });
+            }
+
+            drawInvertedBlock(imageData, x, y, width, height) {
+                for (let dy = 0; dy < height; dy++) {
+                    for (let dx = 0; dx < width; dx++) {
+                        const px = x + dx;
+                        const py = y + dy;
+                        if (px >= 0 && px < imageData.width && py >= 0 && py < imageData.height) {
+                            const idx = (py * imageData.width + px) * 4;
+                            imageData.data[idx] = 255;
+                            imageData.data[idx + 1] = 255;
+                            imageData.data[idx + 2] = 255;
+                            imageData.data[idx + 3] = 255;
+                        }
+                    }
+                }
+            }
+
+            drawCharAsBlack(imageData, char, x, y) {
+                const charIndex = this.font.chars.indexOf(char);
+                if (charIndex === -1) return;
+                
+                const readStart = charIndex * this.font.cols * this.font.rows;
+                
+                for (let fontRow = 0; fontRow < this.font.rows; fontRow++) {
+                    for (let fontCol = 0; fontCol < this.font.cols; fontCol++) {
+                        const pixelX = x + fontCol;
+                        const pixelY = y + fontRow;
+                        
+                        if (pixelX >= 0 && pixelX < imageData.width && pixelY >= 0 && pixelY < imageData.height) {
+                            const readIndex = readStart + (fontRow * this.font.cols + fontCol);
+                            const writeIndex = (pixelY * imageData.width + pixelX) * 4;
+                            
+                            if (this.font.bits[readIndex] === 255) {
+                                imageData.data[writeIndex] = 0;
+                                imageData.data[writeIndex + 1] = 0;
+                                imageData.data[writeIndex + 2] = 0;
+                                imageData.data[writeIndex + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+
+            drawGrayDot(imageData, x, y) {
+                // Draw a gray dot similar to the grid background dots
+                const centerX = x + Math.floor(this.charWidth / 2);
+                const centerY = y + Math.floor(this.charHeight / 2);
+                
+                if (centerX >= 0 && centerX < imageData.width && centerY >= 0 && centerY < imageData.height) {
+                    const idx = (centerY * imageData.width + centerX) * 4;
+                    imageData.data[idx] = 120;
+                    imageData.data[idx + 1] = 120;
+                    imageData.data[idx + 2] = 120;
+                    imageData.data[idx + 3] = 255;
+                }
+            }
+
+            getPaletteChar(index) {
+                if (index === 0) {
+                    return ' '; // Erase character (space)
+                } else {
+                    return this.font.chars[index - 1];
+                }
+            }
+
+            setupAudio() {
+                this.synth = new Tone.PolySynth().toDestination();
+                Tone.Destination.volume.value = -10;
+                
+                this.loop = new Tone.Loop((time) => {
+                    this.playColumn(this.currentStep);
+                    Tone.Draw.schedule(() => {
+                        this.currentStep = (this.currentStep + 1) % this.gridCols;
+                        this.render();
+                    }, time);
+                }, '8n');
+                
+                Tone.Transport.bpm.value = this.bpm;
+            }
+
+            setupEvents() {
+                this.canvas.addEventListener('mousedown', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    this.isMouseDown = true;
+                    this.handleMouseDown(x, y);
+                });
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    this.virtualCol = Math.floor(x / this.cellWidth);
+                    this.virtualRow = Math.floor(y / this.cellHeight);
+                    this.virtualCol = Math.max(0, Math.min(this.totalCols - 1, this.virtualCol));
+                    this.virtualRow = Math.max(0, Math.min(this.totalRows - 1, this.virtualRow));
+                    
+                    this.updateCursorArea();
+                    
+                    if (this.isMouseDown) {
+                        if (this.mode === 'DRAW' && this.cursorArea === 'GRID') {
+                            this.handleDrawDrag(x, y);
+                        } else if (this.mode === 'SELECT' && this.cursorArea === 'GRID') {
+                            this.handleSelectDrag(x, y);
+                        }
+                    }
+                });
+                
+                this.canvas.addEventListener('mouseup', () => {
+                    this.isMouseDown = false;
+                    this.isDrawing = false;
+                    this.isSelecting = false;
+                    this.render();
+                });
+                
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                });
+                
+                document.addEventListener('keydown', (e) => {
+                    this.handleKeydown(e);
+                });
+            }
+
+            updateCursorArea() {
+                // Check if in main grid area
+                if (this.virtualCol >= this.gridStartCol && 
+                    this.virtualCol < this.gridStartCol + this.gridCols &&
+                    this.virtualRow >= this.gridStartRow && 
+                    this.virtualRow < this.gridStartRow + this.gridRows) {
+                    
+                    this.cursorArea = 'GRID';
+                    this.cursorCol = this.virtualCol - this.gridStartCol;
+                    this.cursorRow = this.virtualRow - this.gridStartRow;
+                    this.render();
+                    return;
+                }
+                
+                // Check palette area (row-major layout)
+                if (this.virtualCol >= this.paletteStartCol && 
+                    this.virtualCol < this.paletteStartCol + this.paletteCols &&
+                    this.virtualRow >= this.paletteStartRow && 
+                    this.virtualRow < this.paletteStartRow + this.paletteRows) {
+                    
+                    const paletteCol = this.virtualCol - this.paletteStartCol;
+                    const paletteRow = this.virtualRow - this.paletteStartRow;
+                    const charIndex = paletteRow * this.paletteCols + paletteCol; // Row-major order
+                    
+                    if (charIndex < this.paletteChars) {
+                        this.cursorArea = 'PALETTE';
+                        this.cursorIndex = charIndex;
+                        this.render();
+                        return;
+                    }
+                }
+                
+                // Check controls area
+                if (this.virtualRow === this.controlsRow) {
+                    const buttonSpacing = Math.floor(this.gridCols / this.controls.length);
+                    for (let i = 0; i < this.controls.length; i++) {
+                        const buttonStart = this.gridStartCol + (i * buttonSpacing);
+                        const buttonEnd = buttonStart + buttonSpacing - 1;
+                        
+                        if (this.virtualCol >= buttonStart && this.virtualCol <= buttonEnd) {
+                            this.cursorArea = 'CONTROLS';
+                            this.cursorIndex = i;
+                            this.render();
+                            return;
+                        }
+                    }
+                }
+                
+                this.cursorArea = 'NONE';
+                this.render();
+            }
+
+            handleMouseDown(x, y) {
+                this.virtualCol = Math.floor(x / this.cellWidth);
+                this.virtualRow = Math.floor(y / this.cellHeight);
+                this.virtualCol = Math.max(0, Math.min(this.totalCols - 1, this.virtualCol));
+                this.virtualRow = Math.max(0, Math.min(this.totalRows - 1, this.virtualRow));
+                
+                this.updateCursorArea();
+                
+                if (this.cursorArea === 'GRID') {
+                    if (this.mode === 'DRAW') {
+                        this.isDrawing = true;
+                        this.paintCell(this.cursorRow, this.cursorCol);
+                        this.render();
+                    } else if (this.mode === 'SELECT') {
+                        this.startSelection();
+                        this.render();
+                    }
+                } else {
+                    this.activateCurrent();
+                }
+            }
+
+            handleDrawDrag(x, y) {
+                const gridX = this.gridStartCol * this.cellWidth;
+                const gridY = this.gridStartRow * this.cellHeight;
+                const gridEndX = gridX + (this.gridCols * this.cellWidth);
+                const gridEndY = gridY + (this.gridRows * this.cellHeight);
+                
+                if (x >= gridX && x < gridEndX && y >= gridY && y < gridEndY) {
+                    const col = Math.floor((x - gridX) / this.cellWidth);
+                    const row = Math.floor((y - gridY) / this.cellHeight);
+                    
+                    if (col >= 0 && col < this.gridCols && row >= 0 && row < this.gridRows) {
+                        this.cursorCol = col;
+                        this.cursorRow = row;
+                        if (this.isDrawing) {
+                            this.paintCell(row, col);
+                        }
+                        this.render();
+                    }
+                }
+            }
+
+            handleSelectDrag(x, y) {
+                const gridX = this.gridStartCol * this.cellWidth;
+                const gridY = this.gridStartRow * this.cellHeight;
+                const gridEndX = gridX + (this.gridCols * this.cellWidth);
+                const gridEndY = gridY + (this.gridRows * this.cellHeight);
+                
+                if (x >= gridX && x < gridEndX && y >= gridY && y < gridEndY) {
+                    const col = Math.floor((x - gridX) / this.cellWidth);
+                    const row = Math.floor((y - gridY) / this.cellHeight);
+                    
+                    if (col >= 0 && col < this.gridCols && row >= 0 && row < this.gridRows) {
+                        this.selectionEndCol = col;
+                        this.selectionEndRow = row;
+                        this.cursorCol = col;
+                        this.cursorRow = row;
+                        this.render();
+                    }
+                }
+            }
+
+            startSelection() {
+                this.isSelecting = true;
+                this.selectionStartCol = this.cursorCol;
+                this.selectionStartRow = this.cursorRow;
+                this.selectionEndCol = this.cursorCol;
+                this.selectionEndRow = this.cursorRow;
+                this.hasSelection = true;
+            }
+
+            activateCurrent() {
+                if (this.cursorArea === 'GRID') {
+                    if (this.mode === 'DRAW') {
+                        this.paintCell(this.cursorRow, this.cursorCol);
+                    } else if (this.mode === 'SELECT') {
+                        this.startSelection();
+                    }
+                } else if (this.cursorArea === 'PALETTE') {
+                    this.selectedChar = this.getPaletteChar(this.cursorIndex);
+                } else if (this.cursorArea === 'CONTROLS') {
+                    switch (this.cursorIndex) {
+                        case 0: this.togglePlay(); break;
+                        case 1: this.clear(); break;
+                        case 2: break;
+                        case 3: this.toggleMode(); break;
+                    }
+                }
+                this.render();
+            }
+
+            paintCell(row, col) {
+                const oldChar = this.grid[row][col];
+                this.grid[row][col] = this.selectedChar;
+                
+                if (oldChar !== this.selectedChar && this.selectedChar !== ' ') {
+                    this.playPreview(this.selectedChar, row);
+                }
+            }
+
+            toggleMode() {
+                this.mode = this.mode === 'SELECT' ? 'DRAW' : 'SELECT';
+                this.render();
+            }
+
+            handleKeydown(e) {
+                if (e.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    if (this.cursorArea === 'GRID') {
+                        if (!this.hasSelection) {
+                            this.startSelection();
+                        }
+                        this.moveSelectionEnd(e.key.replace('Arrow', '').toLowerCase());
+                    }
+                    return;
+                }
+
+                switch (e.key) {
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        this.moveCursor('right');
+                        break;
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        this.moveCursor('left');
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        this.moveCursor('up');
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        this.moveCursor('down');
+                        break;
+                    case 'Tab':
+                        e.preventDefault();
+                        this.switchArea();
+                        break;
+                    case ' ':
+                        e.preventDefault();
+                        this.togglePlay();
+                        break;
+                    case 'Enter':
+                        e.preventDefault();
+                        this.activateCurrent();
+                        break;
+                    case 'Backspace':
+                    case 'Delete':
+                        e.preventDefault();
+                        if (this.cursorArea === 'GRID') {
+                            if (this.hasSelection) {
+                                this.deleteSelection();
+                            } else {
+                                this.grid[this.cursorRow][this.cursorCol] = ' ';
+                            }
+                        }
+                        break;
+                    case 'Escape':
+                        e.preventDefault();
+                        this.clearSelection();
+                        break;
+                    case 'c':
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            this.copySelection();
+                        }
+                        break;
+                    case 'v':
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            this.pasteFromClipboard();
+                        }
+                        break;
+                    case 'x':
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            this.cutSelection();
+                        }
+                        break;
+                    case 'm':
+                    case 'M':
+                        e.preventDefault();
+                        this.toggleMode();
+                        break;
+                    default:
+                        if (e.key.length === 1 && this.font.chars.includes(e.key.toUpperCase())) {
+                            e.preventDefault();
+                            this.selectedChar = e.key.toUpperCase();
+                            if (this.cursorArea === 'GRID') {
+                                this.grid[this.cursorRow][this.cursorCol] = this.selectedChar;
+                                this.playPreview(this.selectedChar, this.cursorRow);
+                            }
+                        }
+                        break;
+                }
+                this.render();
+            }
+
+            moveSelectionEnd(direction) {
+                switch (direction) {
+                    case 'right':
+                        this.selectionEndCol = Math.min(this.gridCols - 1, this.selectionEndCol + 1);
+                        this.cursorCol = this.selectionEndCol;
+                        break;
+                    case 'left':
+                        this.selectionEndCol = Math.max(0, this.selectionEndCol - 1);
+                        this.cursorCol = this.selectionEndCol;
+                        break;
+                    case 'up':
+                        this.selectionEndRow = Math.max(0, this.selectionEndRow - 1);
+                        this.cursorRow = this.selectionEndRow;
+                        break;
+                    case 'down':
+                        this.selectionEndRow = Math.min(this.gridRows - 1, this.selectionEndRow + 1);
+                        this.cursorRow = this.selectionEndRow;
+                        break;
+                }
+            }
+
+            clearSelection() {
+                this.hasSelection = false;
+                this.isSelecting = false;
+            }
+
+            deleteSelection() {
+                if (!this.hasSelection) return;
+                
+                const startCol = Math.min(this.selectionStartCol, this.selectionEndCol);
+                const endCol = Math.max(this.selectionStartCol, this.selectionEndCol);
+                const startRow = Math.min(this.selectionStartRow, this.selectionEndRow);
+                const endRow = Math.max(this.selectionStartRow, this.selectionEndRow);
+                
+                for (let row = startRow; row <= endRow; row++) {
+                    for (let col = startCol; col <= endCol; col++) {
+                        this.grid[row][col] = ' ';
+                    }
+                }
+                
+                this.clearSelection();
+            }
+
+            copySelection() {
+                if (!this.hasSelection) return;
+                
+                const startCol = Math.min(this.selectionStartCol, this.selectionEndCol);
+                const endCol = Math.max(this.selectionStartCol, this.selectionEndCol);
+                const startRow = Math.min(this.selectionStartRow, this.selectionEndRow);
+                const endRow = Math.max(this.selectionStartRow, this.selectionEndRow);
+                
+                this.clipboard = [];
+                for (let row = startRow; row <= endRow; row++) {
+                    const clipRow = [];
+                    for (let col = startCol; col <= endCol; col++) {
+                        clipRow.push(this.grid[row][col]);
+                    }
+                    this.clipboard.push(clipRow);
+                }
+                
+                const text = this.clipboard.map(row => row.join('')).join('\n');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).catch(() => {
+                        console.log('Could not copy to system clipboard');
+                    });
+                }
+            }
+
+            cutSelection() {
+                this.copySelection();
+                this.deleteSelection();
+            }
+
+            async pasteFromClipboard() {
+                if (this.cursorArea !== 'GRID') return;
+                
+                let textToPaste = '';
+                
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    try {
+                        textToPaste = await navigator.clipboard.readText();
+                    } catch (e) {
+                        console.log('Could not read from system clipboard');
+                    }
+                }
+                
+                if (!textToPaste && this.clipboard.length > 0) {
+                    textToPaste = this.clipboard.map(row => row.join('')).join('\n');
+                }
+                
+                if (textToPaste) {
+                    this.pasteText(textToPaste);
+                }
+            }
+
+            pasteText(text) {
+                const lines = text.split('\n');
+                const startRow = this.cursorRow;
+                const startCol = this.cursorCol;
+                
+                for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+                    const line = lines[lineIdx];
+                    const row = startRow + lineIdx;
+                    
+                    if (row >= this.gridRows) break;
+                    
+                    for (let charIdx = 0; charIdx < line.length; charIdx++) {
+                        const col = startCol + charIdx;
+                        
+                        if (col >= this.gridCols) break;
+                        
+                        const char = line[charIdx];
+                        if (this.font.chars.includes(char)) {
+                            this.grid[row][col] = char;
+                        } else if (char === ' ') {
+                            this.grid[row][col] = ' ';
+                        }
+                    }
+                }
+                
+                this.render();
+            }
+
+            moveCursor(direction) {
+                this.clearSelection();
+                
+                if (this.cursorArea === 'PALETTE') {
+                    // Handle palette navigation (row-major order)
+                    const currentRow = Math.floor(this.cursorIndex / this.paletteCols);
+                    const currentCol = this.cursorIndex % this.paletteCols;
+                    
+                    switch (direction) {
+                        case 'right':
+                            if (currentCol < this.paletteCols - 1 && this.cursorIndex < this.paletteChars - 1) {
+                                this.cursorIndex++;
+                            }
+                            break;
+                        case 'left':
+                            if (currentCol > 0) {
+                                this.cursorIndex--;
+                            }
+                            break;
+                        case 'up':
+                            if (currentRow > 0) {
+                                this.cursorIndex = Math.max(0, this.cursorIndex - this.paletteCols);
+                            }
+                            break;
+                        case 'down':
+                            if (currentRow < this.paletteRows - 1) {
+                                this.cursorIndex = Math.min(this.paletteChars - 1, this.cursorIndex + this.paletteCols);
+                            }
+                            break;
+                    }
+                    
+                    // Update virtual position (row-major)
+                    const newRow = Math.floor(this.cursorIndex / this.paletteCols);
+                    const newCol = this.cursorIndex % this.paletteCols;
+                    this.virtualCol = this.paletteStartCol + newCol;
+                    this.virtualRow = this.paletteStartRow + newRow;
+                    
+                    this.render();
+                } else {
+                    switch (direction) {
+                        case 'right':
+                            this.virtualCol = Math.min(this.totalCols - 1, this.virtualCol + 1);
+                            break;
+                        case 'left':
+                            this.virtualCol = Math.max(0, this.virtualCol - 1);
+                            break;
+                        case 'up':
+                            this.virtualRow = Math.max(0, this.virtualRow - 1);
+                            break;
+                        case 'down':
+                            this.virtualRow = Math.min(this.totalRows - 1, this.virtualRow + 1);
+                            break;
+                    }
+                    
+                    this.updateCursorArea();
+                }
+            }
+
+            switchArea() {
+                if (this.cursorArea === 'GRID') {
+                    this.cursorArea = 'PALETTE';
+                    this.cursorIndex = 0; // Start with erase character
+                    if (this.selectedChar !== ' ') {
+                        const charIndex = this.font.chars.indexOf(this.selectedChar);
+                        if (charIndex !== -1) {
+                            this.cursorIndex = charIndex + 1; // +1 because erase is at index 0
+                        }
+                    }
+                    
+                    // Update virtual position (row-major)
+                    const paletteRow = Math.floor(this.cursorIndex / this.paletteCols);
+                    const paletteCol = this.cursorIndex % this.paletteCols;
+                    this.virtualCol = this.paletteStartCol + paletteCol;
+                    this.virtualRow = this.paletteStartRow + paletteRow;
+                    
+                } else if (this.cursorArea === 'PALETTE') {
+                    this.cursorArea = 'CONTROLS';
+                    this.cursorIndex = 0;
+                    
+                    const buttonSpacing = Math.floor(this.gridCols / this.controls.length);
+                    const buttonStart = this.gridStartCol + (0 * buttonSpacing);
+                    this.virtualCol = buttonStart;
+                    this.virtualRow = this.controlsRow;
+                    
+                } else if (this.cursorArea === 'CONTROLS') {
+                    this.cursorArea = 'GRID';
+                    
+                    this.virtualCol = this.gridStartCol + this.cursorCol;
+                    this.virtualRow = this.gridStartRow + this.cursorRow;
+                }
+            }
+
+            togglePlay() {
+                if (this.isPlaying) {
+                    this.stop();
+                } else {
+                    this.play();
+                }
+            }
+
+            play() {
+                this.isPlaying = true;
+                this.currentStep = 0;
+                Tone.Transport.start();
+                this.loop.start();
+                
+                if (Tone.context.state !== 'running') {
+                    Tone.start();
+                }
+                this.render();
+            }
+
+            stop() {
+                this.isPlaying = false;
+                Tone.Transport.stop();
+                this.loop.stop();
+                this.render();
+            }
+
+            clear() {
+                for (let row = 0; row < this.gridRows; row++) {
+                    for (let col = 0; col < this.gridCols; col++) {
+                        this.grid[row][col] = ' ';
+                    }
+                }
+                this.render();
+            }
+
+            playColumn(col) {
+                const notes = [];
+                for (let row = 0; row < this.gridRows; row++) {
+                    const char = this.grid[row][col];
+                    if (char !== ' ') {
+                        const note = this.getNote(char, row);
+                        if (note) notes.push(note);
+                    }
+                }
+                if (notes.length > 0) {
+                    this.synth.triggerAttackRelease(notes, '8n');
+                }
+            }
+            
+            playPreview(char, row) {
+                if (Tone.context.state === 'running') {
+                    const note = this.getNote(char, row);
+                    if (note) {
+                        this.synth.triggerAttackRelease(note, '8n');
+                    }
+                }
+            }
+            
+            getNote(char, row) {
+                const notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+                const octave = Math.floor(row / 7) + 3;
+                const noteIndex = char.charCodeAt(0) % 7;
+                return notes[noteIndex] + octave;
+            }
+
+            render() {
+                const imageData = new ImageData(this.canvas.width, this.canvas.height);
+                
+                // Clear to black
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] = 0;
+                    imageData.data[i + 1] = 0;
+                    imageData.data[i + 2] = 0;
+                    imageData.data[i + 3] = 255;
+                }
+
+                // Title row
+                const titleX = this.gridStartCol * this.cellWidth;
+                const titleY = this.titleRow * this.cellHeight;
+                this.font.insertText('ASCII GRID SEQUENCER    MODE:' + this.mode + '    CHAR:' + (this.selectedChar === ' ' ? 'ERASE' : this.selectedChar), imageData, titleX, titleY, 1);
+                
+                // Main grid area
+                for (let row = 0; row < this.gridRows; row++) {
+                    for (let col = 0; col < this.gridCols; col++) {
+                        const char = this.grid[row][col];
+                        const x = (this.gridStartCol + col) * this.cellWidth;
+                        const y = (this.gridStartRow + row) * this.cellHeight;
+                        
+                        // Grid dots for empty cells
+                        if (char === ' ') {
+                            this.font.insertChar('.', imageData, x, y);
+                            // Make dots dimmer
+                            for (let dy = 0; dy < this.charHeight; dy++) {
+                                for (let dx = 0; dx < this.charWidth; dx++) {
+                                    const px = x + dx;
+                                    const py = y + dy;
+                                    if (px < imageData.width && py < imageData.height) {
+                                        const i = (py * imageData.width + px) * 4;
+                                        if (imageData.data[i] > 0) {
+                                            imageData.data[i] = 80;
+                                            imageData.data[i + 1] = 80;
+                                            imageData.data[i + 2] = 80;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Current step indicator (playhead)
+                        if (this.isPlaying && col === this.currentStep) {
+                            for (let dy = 0; dy < this.charHeight; dy++) {
+                                for (let dx = 0; dx < this.charWidth; dx++) {
+                                    const px = x + dx;
+                                    const py = y + dy;
+                                    if (px < imageData.width && py < imageData.height) {
+                                        const i = (py * imageData.width + px) * 4;
+                                        imageData.data[i] = Math.max(imageData.data[i], 150);
+                                        imageData.data[i + 1] = Math.max(imageData.data[i + 1], 0);
+                                        imageData.data[i + 2] = Math.max(imageData.data[i + 2], 0);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Selection highlight
+                        if (this.hasSelection) {
+                            const startCol = Math.min(this.selectionStartCol, this.selectionEndCol);
+                            const endCol = Math.max(this.selectionStartCol, this.selectionEndCol);
+                            const startRow = Math.min(this.selectionStartRow, this.selectionEndRow);
+                            const endRow = Math.max(this.selectionStartRow, this.selectionEndRow);
+                            
+                            if (col >= startCol && col <= endCol && row >= startRow && row <= endRow) {
+                                this.drawInvertedBlock(imageData, x, y, this.charWidth, this.charHeight);
+                            }
+                        }
+                        
+                        // Character
+                        if (char !== ' ') {
+                            let isSelected = false;
+                            if (this.hasSelection) {
+                                const startCol = Math.min(this.selectionStartCol, this.selectionEndCol);
+                                const endCol = Math.max(this.selectionStartCol, this.selectionEndCol);
+                                const startRow = Math.min(this.selectionStartRow, this.selectionEndRow);
+                                const endRow = Math.max(this.selectionStartRow, this.selectionEndRow);
+                                isSelected = (col >= startCol && col <= endCol && row >= startRow && row <= endRow);
+                            }
+                            
+                            if (isSelected) {
+                                this.drawCharAsBlack(imageData, char, x, y);
+                            } else {
+                                this.font.insertChar(char, imageData, x, y);
+                            }
+                        }
+                        
+                        // Grid cursor
+                        if (this.cursorArea === 'GRID' && col === this.cursorCol && row === this.cursorRow) {
+                            if (char !== ' ') {
+                                if (this.cursorVisible) {
+                                    this.drawInvertedBlock(imageData, x, y, this.charWidth, this.charHeight);
+                                    this.drawCharAsBlack(imageData, char, x, y);
+                                }
+                            } else {
+                                this.drawInvertedBlock(imageData, x, y, this.charWidth, this.charHeight);
+                            }
+                        }
+                    }
+                }
+                
+                // Palette area (row-major layout: left to right, top to bottom)
+                for (let i = 0; i < this.paletteChars; i++) {
+                    const char = this.getPaletteChar(i);
+                    const row = Math.floor(i / this.paletteCols); // Row-major: row first
+                    const col = i % this.paletteCols; // Then column
+                    const x = (this.paletteStartCol + col) * this.cellWidth;
+                    const y = (this.paletteStartRow + row) * this.cellHeight;
+                    
+                    const isSelected = (this.cursorArea === 'PALETTE' && i === this.cursorIndex);
+                    
+                    if (isSelected && this.cursorVisible) {
+                        this.drawInvertedBlock(imageData, x, y, this.charWidth, this.charHeight);
+                        if (i === 0) {
+                            // Draw inverted gray dot for erase character
+                            const centerX = x + Math.floor(this.charWidth / 2);
+                            const centerY = y + Math.floor(this.charHeight / 2);
+                            if (centerX >= 0 && centerX < imageData.width && centerY >= 0 && centerY < imageData.height) {
+                                const idx = (centerY * imageData.width + centerX) * 4;
+                                imageData.data[idx] = 0;
+                                imageData.data[idx + 1] = 0;
+                                imageData.data[idx + 2] = 0;
+                                imageData.data[idx + 3] = 255;
+                            }
+                        } else {
+                            this.drawCharAsBlack(imageData, char, x, y);
+                        }
+                    } else {
+                        if (char === this.selectedChar && this.paletteStartCol > 3) {
+                            // Selection indicator in one of the 3 empty columns before palette
+                            this.font.insertChar('>', imageData, (this.paletteStartCol - 2) * this.cellWidth, y);
+                        }
+                        
+                        if (i === 0) {
+                            // Draw gray dot for erase character
+                            this.drawGrayDot(imageData, x, y);
+                        } else {
+                            this.font.insertChar(char, imageData, x, y);
+                        }
+                    }
+                }
+                
+                // Controls row
+                const buttonSpacing = Math.floor(this.gridCols / this.controls.length);
+                for (let i = 0; i < this.controls.length; i++) {
+                    const buttonStart = this.gridStartCol + (i * buttonSpacing);
+                    const x = buttonStart * this.cellWidth;
+                    const y = this.controlsRow * this.cellHeight;
+                    
+                    let text;
+                    switch (i) {
+                        case 0: text = this.isPlaying ? 'STOP' : 'PLAY'; break;
+                        case 1: text = 'CLEAR'; break;
+                        case 2: text = 'BPM:' + this.bpm; break;
+                        case 3: text = 'MODE:' + this.mode; break;
+                    }
+                    
+                    const isSelected = (this.cursorArea === 'CONTROLS' && i === this.cursorIndex);
+                    
+                    if (isSelected && this.cursorVisible) {
+                        const textWidth = text.length * (this.charWidth + 1);
+                        this.drawInvertedBlock(imageData, x, y, textWidth, this.charHeight);
+                        
+                        for (let charIdx = 0; charIdx < text.length; charIdx++) {
+                            const char = text[charIdx];
+                            const charX = x + charIdx * (this.charWidth + 1);
+                            this.drawCharAsBlack(imageData, char, charX, y);
+                        }
+                    } else {
+                        this.font.insertText(text, imageData, x, y, 1);
+                    }
+                }
+                
+                // Help row
+                const helpY = this.helpRow * this.cellHeight;
+                this.font.insertText('ARROWS:MOVE TAB:SWITCH SPACE:PLAY ENTER:ACTIVATE M:MODE SHIFT+ARROWS:SELECT CTRL+C/X/V:COPY/CUT/PASTE ESC:CLEAR-SELECT', imageData, this.gridStartCol * this.cellWidth, helpY, 1);
+                
+                // Universal cursor for non-specific areas
+                if (this.cursorArea === 'NONE') {
+                    const cursorX = this.virtualCol * this.cellWidth;
+                    const cursorY = this.virtualRow * this.cellHeight;
+                    this.drawInvertedBlock(imageData, cursorX, cursorY, this.charWidth, this.charHeight);
+                }
+
+                this.ctx.putImageData(imageData, 0, 0);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Starting sequencer...');
+            new ASCIIGridSequencer();
+        });
+    </script>
+</body>
+</html>
