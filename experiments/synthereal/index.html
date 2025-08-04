@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Synthereal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes morphBackground {
+            0% { background-position: 0% 50%, 100% 50%; }
+            25% { background-position: 50% 0%, 50% 100%; }
+            50% { background-position: 100% 50%, 0% 50%; }
+            75% { background-position: 50% 100%, 50% 0%; }
+            100% { background-position: 0% 50%, 100% 50%; }
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            user-select: none; 
+            background-color: #111827;
+            background-image: 
+                radial-gradient(circle at var(--bg-pos-x1, 25%) var(--bg-pos-y1, 75%), var(--bg-color-1, #111827), transparent 40%),
+                radial-gradient(circle at var(--bg-pos-x2, 75%) var(--bg-pos-y2, 25%), var(--bg-color-2, #4c1d95), transparent 40%);
+            transition: --bg-color-1 2s ease, --bg-color-2 2s ease;
+            animation: morphBackground 20s linear infinite;
+        }
+
+        .knob-control { position: relative; display: flex; flex-direction: column; align-items: center; }
+        .knob-input {
+            -webkit-appearance: none; appearance: none;
+            width: 50px; height: 50px; border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #4b5563, #1f2937);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.1);
+            cursor: ew-resize; outline: none; margin-bottom: 0.5rem;
+        }
+        .knob-input::-webkit-slider-thumb { -webkit-appearance: none; }
+        .knob-input::before {
+            content: ''; position: absolute;
+            width: 2px; height: 12px; background: #2dd4bf;
+            top: 6px; left: 24px; transform-origin: 1px 19px;
+            transform: rotate(calc(var(--knob-angle, -135) * 1deg));
+            border-radius: 1px; box-shadow: 0 0 4px #2dd4bf; pointer-events: none;
+        }
+        .knob-value {
+            font-size: 0.75rem; color: #5eead4; text-align: center; width: 60px;
+            background-color: #1f2937; border: 1px solid #374151; border-radius: 4px;
+            padding: 2px 0; cursor: text;
+        }
+        .knob-value:focus { outline: none; border-color: #2dd4bf; background-color: #111827; }
+        .editor-select {
+            background-color: #374151; border: 1px solid #4b5563; border-radius: 4px;
+            color: white; padding: 4px; width: 100%; font-size: 0.75rem;
+        }
+        .param-control-btn {
+            background: #374151; border: 1px solid #4b5563; color: #9ca3af;
+            width: 18px; height: 18px; font-size: 12px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .param-control-btn:hover { background: #4b5563; color: white; }
+        .param-control-btn.locked { background: #be123c; color: white; }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center min-h-screen p-4">
+
+    <div class="max-w-full w-full mx-auto px-4">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-teal-400">Synthereal</h1>
+        </header>
+
+        <div class="bg-gray-800 rounded-lg shadow-xl p-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="timbre-select" class="block mb-2 text-sm font-medium text-gray-300">Select Timbre:</label>
+                    <select id="timbre-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block w-full p-2.5">
+                    </select>
+                </div>
+                <div class="flex justify-center items-end space-x-4 md:space-x-6">
+                    <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Volume</label>
+                        <div class="knob-control"><div id="volume-knob" class="knob-input"></div></div>
+                        <div id="volume-value" class="knob-value">0.30</div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Reverb</label>
+                        <div class="knob-control"><div id="reverb-knob" class="knob-input"></div></div>
+                        <div id="reverb-value" class="knob-value">0.30</div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Vibrato</label>
+                        <div class="knob-control"><div id="vibrato-knob" class="knob-input"></div></div>
+                        <div id="vibrato-value" class="knob-value">0.00</div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Echo</label>
+                        <div class="knob-control"><div id="echo-knob" class="knob-input"></div></div>
+                        <div id="echo-value" class="knob-value">0.00</div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Distortion</label>
+                        <div class="knob-control"><div id="distortion-knob" class="knob-input"></div></div>
+                        <div id="distortion-value" class="knob-value">0.00</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="editor-container" class="bg-gray-800 rounded-lg shadow-xl p-6 mb-6">
+             <h2 class="text-2xl font-bold text-teal-400 mb-4">Timbre Editor</h2>
+             <div class="flex items-center space-x-4 mb-4">
+                <label for="oscs" class="text-sm font-medium">Oscillators:</label>
+                <select id="oscs" class="bg-gray-700 border border-gray-600 rounded-md p-2">
+                    <option>1</option><option>2</option><option>3</option><option>4</option>
+                </select>
+                <button id="test-note-btn" class="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Test Note</button>
+                <button id="randomize-all-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Randomize All</button>
+             </div>
+             <div id="editor-grid" class="space-y-6">
+             </div>
+            <div class="mt-6">
+                <label for="patch-name-input" class="block mb-2 text-sm font-medium text-gray-300">Patch Name & Data</label>
+                <div class="flex space-x-2">
+                    <input id="patch-name-input" type="text" class="w-1/4 p-2 bg-gray-900 border border-gray-600 rounded-md">
+                    <input id="patch" type="text" readonly class="flex-grow p-2 bg-gray-900 border border-gray-600 rounded-md font-mono text-xs">
+                    <button id="save-patch-btn" title="Save Patch" class="p-2 bg-blue-600 hover:bg-blue-700 rounded-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6a1 1 0 10-2 0v5.586L7.707 10.293zM5 4a1 1 0 011-1h8a1 1 0 011 1v1a1 1 0 11-2 0V5H6v1a1 1 0 11-2 0V4z" /><path fill-rule="evenodd" d="M3 9a1 1 0 011-1h12a1 1 0 011 1v7a2 2 0 01-2 2H5a2 2 0 01-2-2V9zm1 0h12v7a1 1 0 01-1 1H5a1 1 0 01-1-1V9z" clip-rule="evenodd" /></svg>
+                    </button>
+                    <button id="copy-patch-btn" title="Copy Shareable URL" class="p-2 bg-green-600 hover:bg-green-700 rounded-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center mt-8 text-gray-500 text-sm">
+            <p>Play with your computer keyboard (A, W, S, E, D, F, T, G, Y, H, U, J, K)</p>
+        </footer>
+    </div>
+
+    <script>
+        class Synthereal {
+            constructor(options = {}) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.audioContext.createGain();
+                this.volume = options.volume !== undefined ? options.volume : 0.3;
+                this.masterGain.gain.value = this.volume;
+                this.activeNotes = new Map();
+                this.waveCache = {};
+
+                // --- Global Effects Chain ---
+                this.distortion = this.audioContext.createWaveShaper();
+                this.distortion.oversample = '4x';
+                this.distortionGain = this.audioContext.createGain();
+                this.distortionMix = this.audioContext.createGain();
+                this.distortionMix.gain.value = 0; // Wet signal starts at 0
+
+                this.delay = this.audioContext.createDelay(1.0);
+                this.delayFeedback = this.audioContext.createGain();
+                this.delayFeedback.gain.value = 0;
+                this.delay.delayTime.value = 0.3;
+
+                this.convolver = this.audioContext.createConvolver();
+                this.reverbGain = this.audioContext.createGain();
+                this.reverbGain.gain.value = 0.3;
+                this.convolver.buffer = this._createReverbImpulse();
+
+                this.modLFO = this.audioContext.createOscillator();
+                this.modLFOGain = this.audioContext.createGain();
+                this.modLFO.frequency.value = 5;
+                this.modLFOGain.gain.value = 0;
+                this.modLFO.connect(this.modLFOGain);
+                this.modLFO.start();
+
+                // Routing
+                this.masterGain.connect(this.distortion); // Signal to distortion
+                this.distortion.connect(this.distortionGain);
+                this.distortionGain.connect(this.distortionMix);
+                this.distortionMix.connect(this.audioContext.destination); // Wet distortion to output
+
+                this.masterGain.connect(this.delay);
+                this.delay.connect(this.delayFeedback);
+                this.delayFeedback.connect(this.delay);
+                this.delay.connect(this.audioContext.destination);
+                
+                this.masterGain.connect(this.reverbGain);
+                this.reverbGain.connect(this.convolver);
+                this.convolver.connect(this.audioContext.destination);
+                
+                this.masterGain.connect(this.audioContext.destination); // Master Dry signal
+
+                this._createNoiseBuffers();
+            }
+
+            setVolume(level) { this.masterGain.gain.value = level; }
+            setReverb(level) { this.reverbGain.gain.value = level; }
+            setVibrato(depth) { this.modLFOGain.gain.value = depth; }
+            setEcho(feedback) { this.delayFeedback.gain.value = feedback; }
+            setDistortion(amount) {
+                const drive = amount * 50; 
+                this.distortion.curve = this._createDistortionCurve(drive);
+                this.distortionMix.gain.value = Math.pow(amount, 2);
+            }
+
+            _createDistortionCurve(amount) {
+                const k = typeof amount === 'number' ? amount : 50;
+                const n_samples = 44100;
+                const curve = new Float32Array(n_samples);
+                for (let i = 0; i < n_samples; ++i) {
+                    const x = i * 2 / n_samples - 1;
+                    curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+                }
+                return curve;
+            }
+
+            _createReverbImpulse() {
+                const rate = this.audioContext.sampleRate;
+                const length = rate * 2;
+                const impulse = this.audioContext.createBuffer(2, length, rate);
+                const left = impulse.getChannelData(0);
+                const right = impulse.getChannelData(1);
+                for (let i = 0; i < length; i++) {
+                    const n = length - i;
+                    left[i] = (Math.random() * 2 - 1) * Math.pow(n / length, 2.5);
+                    right[i] = (Math.random() * 2 - 1) * Math.pow(n / length, 2.5);
+                }
+                return impulse;
+            }
+
+            _createNoiseBuffers() {
+                const bufferSize = this.audioContext.sampleRate * 2;
+                this.noiseBuffers = {};
+                const n0Buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+                const n0Data = n0Buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) n0Data[i] = Math.random() * 2 - 1;
+                this.noiseBuffers['n0'] = n0Buffer;
+                const n1Buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+                const n1Data = n1Buffer.getChannelData(0);
+                let lastOut = 0;
+                for (let i = 0; i < bufferSize; i++) {
+                     const white = Math.random() * 2 - 1;
+                     n1Data[i] = (lastOut + (0.02 * white)) / 1.02;
+                     lastOut = n1Data[i];
+                     n1Data[i] *= 3.5;
+                }
+                this.noiseBuffers['n1'] = n1Buffer;
+            }
+
+            _getPeriodicWave(name) {
+                if (this.waveCache[name]) return this.waveCache[name];
+                const real = new Float32Array([0, 0.4, 0.4, 0.2, 0.1]);
+                const imag = new Float32Array(real.length).fill(0);
+                const wave = this.audioContext.createPeriodicWave(real, imag, { disableNormalization: true });
+                this.waveCache[name] = wave;
+                return wave;
+            }
+
+            noteOn(noteNumber, velocity, timbre) {
+                if (this.audioContext.state === 'suspended') this.audioContext.resume();
+                const noteId = noteNumber;
+                if (this.activeNotes.has(noteId)) this.noteOff(noteId);
+
+                const baseFreq = 440 * Math.pow(2, (noteNumber - 69) / 12);
+                const now = this.audioContext.currentTime;
+                const noteContext = { nodes: [], timbre: timbre };
+
+                timbre.forEach(oscDef => {
+                    const p = this._createParamDefaults(oscDef);
+                    const oscNode = this._createOscillatorNode(p);
+                    if (oscNode.detune) this.modLFOGain.connect(oscNode.detune);
+                    
+                    let currentNode = oscNode;
+                    const nodes = { osc: oscNode };
+
+                    if (p.sCurve > 0.01) {
+                        const shaper = this.audioContext.createWaveShaper();
+                        const curve = new Float32Array(256);
+                        for(let i=0; i<256; ++i) {
+                            const x = i * 2 / 255 - 1;
+                            curve[i] = Math.sign(x) * Math.pow(Math.abs(x), p.sCurve);
+                        }
+                        shaper.curve = curve;
+                        currentNode.connect(shaper);
+                        currentNode = shaper;
+                    }
+
+                    if (p.filter !== 'off') {
+                        const filter = this.audioContext.createBiquadFilter();
+                        filter.type = p.filter;
+                        filter.frequency.value = p.fFreq;
+                        filter.Q.value = p.fQ;
+                        currentNode.connect(filter);
+                        currentNode = filter;
+                    }
+                    
+                    if (p.crush > 0) {
+                        const crushSteps = Math.pow(2, 8 - p.crush);
+                        const crushCurve = new Float32Array(256);
+                        for(let i=0; i<256; i++) {
+                            const x = i * 2 / 255 - 1;
+                            crushCurve[i] = Math.round(x * crushSteps) / crushSteps;
+                        }
+                        const crusher = this.audioContext.createWaveShaper();
+                        crusher.curve = crushCurve;
+                        currentNode.connect(crusher);
+                        currentNode = crusher;
+                    }
+
+                    const gainNode = this.audioContext.createGain();
+                    currentNode.connect(gainNode);
+                    nodes.gain = gainNode;
+
+                    if (p.tremolo > 0) {
+                        const tremoloLFO = this.audioContext.createOscillator();
+                        tremoloLFO.frequency.value = 5;
+                        const tremoloGain = this.audioContext.createGain();
+                        tremoloGain.gain.value = p.tremolo;
+                        tremoloLFO.connect(tremoloGain);
+                        tremoloGain.connect(gainNode.gain);
+                        tremoloLFO.start(now);
+                        nodes.tremoloLFO = tremoloLFO;
+                    }
+
+                    noteContext.nodes.push({ p, ...nodes });
+                    
+                    const freqParam = oscNode.frequency || oscNode.playbackRate;
+                    const calculatedFreq = baseFreq * p.t + p.f;
+                    freqParam.setValueAtTime(calculatedFreq, now);
+                    if (p.slide !== 0) freqParam.linearRampToValueAtTime(calculatedFreq + p.slide, now + p.a + p.d);
+                    if (p.dSlide !== 0) freqParam.setTargetAtTime(calculatedFreq + p.slide + p.dSlide, now + p.a + p.d, 0.1);
+
+                    const velFactor = velocity / 127;
+                    const keyTrackFactor = Math.pow(2, (noteNumber - 60) / 12 * p.k);
+                    const finalVolume = p.v * velFactor * keyTrackFactor;
+                    const gainParam = gainNode.gain;
+                    gainParam.setValueAtTime(0, now);
+                    gainParam.linearRampToValueAtTime(finalVolume, now + p.a);
+                    gainParam.setValueAtTime(finalVolume, now + p.a + p.h);
+                    if (p.d > 0) gainParam.linearRampToValueAtTime(p.s * finalVolume, now + p.a + p.h + p.d);
+                    
+                    oscNode.start(now);
+                });
+
+                noteContext.nodes.forEach((oscData) => {
+                    const { p, gain } = oscData;
+                    const destination = p.g;
+                    if (destination === 0) {
+                        gain.connect(this.masterGain);
+                    } else if (destination > 0 && destination <= noteContext.nodes.length) {
+                        const targetOsc = noteContext.nodes[destination - 1].osc;
+                        if (targetOsc.frequency) {
+                            gain.connect(targetOsc.frequency);
+                        }
+                    }
+                });
+                this.activeNotes.set(noteId, noteContext);
+                
+                const [color1, color2] = this._frequencyToColor(baseFreq);
+                const root = document.documentElement;
+                root.style.setProperty('--bg-color-1', color1);
+                root.style.setProperty('--bg-color-2', color2);
+            }
+
+            noteOff(noteNumber) {
+                const noteContext = this.activeNotes.get(noteNumber);
+                if (!noteContext) return;
+                const now = this.audioContext.currentTime;
+                noteContext.nodes.forEach(({ p, osc, gain, tremoloLFO }) => {
+                    const releaseTime = now + p.r;
+                    gain.gain.cancelScheduledValues(now);
+                    gain.gain.setValueAtTime(gain.gain.value, now);
+                    if (p.r > 0) gain.gain.linearRampToValueAtTime(0, releaseTime);
+                    osc.stop(releaseTime + 0.1);
+                    if (tremoloLFO) tremoloLFO.stop(releaseTime + 0.1);
+                });
+                this.activeNotes.delete(noteNumber);
+            }
+            
+            _createOscillatorNode(p) {
+                 const node = p.w.startsWith('n') ? this.audioContext.createBufferSource() : this.audioContext.createOscillator();
+                 if (node.buffer) {
+                     node.buffer = this.noiseBuffers[p.w];
+                     node.loop = true;
+                 } else {
+                     if (p.w.startsWith('w')) node.setPeriodicWave(this._getPeriodicWave(p.w));
+                     else node.type = p.w;
+                 }
+                 return node;
+            }
+
+            _createParamDefaults(params) {
+                const defaults = { 
+                    g: 0, w: 'sine', v: 0.5, t: 1, f: 0, 
+                    a: 0.01, h: 0, d: 0.01, s: 0, r: 0.1, 
+                    p: 1, q: 0.01, k: 0,
+                    slide: 0, dSlide: 0, sCurve: 0, crush: 0,
+                    filter: 'off', fFreq: 1000, fQ: 1, tremolo: 0
+                };
+                return { ...defaults, ...params };
+            }
+
+            _frequencyToColor(freq) {
+                const logFreq = Math.log2(freq / 40);
+                const hue = (logFreq * 60) % 360;
+                const color1 = `hsl(${hue}, 70%, 20%)`;
+                const color2 = `hsl(${(hue + 120) % 360}, 60%, 10%)`;
+                return [color1, color2];
+            }
+        }
+
+        // --- UI and Application Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const synth = new Synthereal();
+            const timbreSelect = document.getElementById('timbre-select');
+            const editorGrid = document.getElementById('editor-grid');
+            const oscsSelect = document.getElementById('oscs');
+            const patchInput = document.getElementById('patch');
+            const patchNameInput = document.getElementById('patch-name-input');
+            const testNoteBtn = document.getElementById('test-note-btn');
+            const randomizeAllBtn = document.getElementById('randomize-all-btn');
+            const savePatchBtn = document.getElementById('save-patch-btn');
+            const copyPatchBtn = document.getElementById('copy-patch-btn');
+
+            let defaultTimbres = {
+                "Crystal Piano": {fx:{R:0.4,V:5,E:0.2,D:0},o:[{w:"sine",v:.4,d:0.7,r:0.2},{w:"sine",v:8,d:0.5,s:0.1,g:1,a:0.01,k:-1.2, t: 4}]},
+                "Starlight Bells": {fx:{R:0.6,V:2,E:0.4,D:0},o:[{w:"triangle",v:0.4,d:0.9,r:0.9,},{w:"sine",v:2,t:6,d:0.6,s:0.1,g:1,k:-1,a:0.01,}]},
+                "Nebula Rhodes": {fx:{R:0.5,V:15,E:0.3,D:0},o:[{w:"sine",d:1.5,r:0.5, i: 'lowpass', j: 1500, u: 2},{w:"triangle",v:4,f:2,d:1.5,s:0.5,g:1,k:-1}]},
+                "Gilded Harpsichord": {fx:{R:0.2,V:0,E:0,D:0},o:[{w:"sawtooth",v:0.4,d:1.5, r: 1.5, b: 1},{w:"sine",v:8,f:0.1,d:2,s:1,r:2,g:1,}]},
+                "Funk Clav from Mars": {fx:{R:0.1,V:0,E:0.2,D:0.1},o:[{w:"square",v:0.4,d:0.2, r:0.2, i: 'bandpass', j: 2000, u: 5},{w:"square",v:6,f:0.1,d:0.1,s:0.5,r:0.1,g:1,}]},
+                "Spaceman's Lullaby": {fx:{R:0.7,V:8,E:0.5,D:0},o:[{w:"sine",v:0.2,d:1.5,r:1.5,},{w:"sine",v:11,t:5,d:1,s:0.4,g:1, o: 0.2}]},
+                "Glass Mallets": {fx:{R:0.4,V:0,E:0.3,D:0},o:[{w:"sine",v:0.2,d:0.8,r:0.8,},{w:"triangle",v:11,t:4,f:1,s:0.5,g:1,}]},
+                "Cosmic Cathedral": {fx:{R:0.8,V:0,E:0,D:0},o:[{w:"w9999",v:0.2,d:0.1,s:0.9, a: 0.1, r: 2},{w:"w9999",v:0.25,t:4,f:2,s:0.5, a: 0.1, r: 2}]},
+                "Void Ripper Guitar": {fx:{R:0.2,V:0,E:0.1,D:0.8},o:[{w:"sawtooth",v:0.4,d:1,f:1,c:3.5, i: 'lowpass', j: 4000, u: 2},{w:"square",v:7,f:-1,d:0.3,s:0.5,g:1,}]},
+                "Solar Flare Strings": {fx:{R:0.6,V:10,E:0,D:0},o:[{w:"sawtooth",v:0.4,a:0.8,d:11, l: 50},{w:"sine",v:5,d:11,s:0.2,g:1,}]},
+                "Supernova Blast": {fx:{R:0.5,V:0,E:0.5,D:0.2},o:[{w:"n0",v:0.8,a:0.01,d:1.5,r:1.5, i: 'highpass', j: 1000},{w:"sawtooth",v:4,f:0.5,d:1,r:11,a:0.01,g:1,h:0.02,},{w:"square",v:0.15,t:4,f:1,a:0.02,d:0.15,r:0.15,h:0.03,},{g:3,w:"square",v:4,f:-0.5,a:0.01,h:0.02,d:0.15,r:11,}]},
+                "Andromeda Strings": {fx:{R:0.7,V:12,E:0,D:0},o:[{w:"sawtooth",v:0.3,a:0.5,s:0.5, r: 1.5, i: 'lowpass', j: 5000, u: 1.2},{w:"sawtooth",v:0.2,t:2,f:2,d:1,s:2, a: 0.5, r: 1.5}]},
+                "Celestial Choir": {fx:{R:0.8,V:8,E:0,D:0},o:[{w:"triangle",v:0.3,a:0.6,s:1, r: 1.2},{w:"sine",v:3,t:5,f:1,d:1,s:1,g:1,}]},
+                "Sub-Frequency Worm": {fx:{R:0.1,V:0,E:0,D:0.1},o:[{w:"triangle",d:0.7, i: 'lowpass', j: 200, u: 10},{w:"square",v:0.4,t:0.5,f:1,d:0.2,s:10,g:1,}]},
+                "Dreamwave Keys": {fx:{R:0.6,V:10,E:0.4,D:0},o:[{w:"sine",v:0.35,d:1.5, r: 1.5},{w:"sine",v:8,t:7.05,f:1,d:1,s:1,g:1,k:-.7}]},
+                "Laser Lead": {fx:{R:0.1,V:0,E:0.2,D:0},o:[{w:"sawtooth",v:0.3,d:0.2,s:0.5, r: 0.2, l: -200},{w:"square",v:2,f:0.1,s:0.5,g:1,}]},
+                "Floating City Pad": {fx:{R:0.8,V:5,E:0,D:0},o:[{w:"triangle",v:0.3,a:1.2,d:0.3,s:0.3,r:1.5,},{w:"square",v:3,t:4,f:1,a:1.2,d:0.1,s:1,g:1,},{w:"triangle",v:0.08,t:0.5,a:1.5,h:0,d:0.1,s:0.5,r:2}]},
+                "Event Horizon Pad": {fx:{R:0.9,V:2,E:0,D:0},o:[{w:"triangle",v:0.3,a:2,d:11,r:2, i: 'lowpass', j: 8000, u: 1},{w:"sawtooth",v:1,d:1,s:8,g:1, t: 1.01}]},
+                "Alien Chatter":{fx:{R:0.3,V:0,E:0.6,D:0},o:[{w:"square",v:0.3,a:0.1,d:0.1,s:0.4, o: 0.8},{w:"square",v:1,f:1,d:0.3,s:0.1,g:1, t: 5.3}]},
+                "Whispering Wind": {fx:{R:0.5,V:0,E:0,D:0},o:[{w:"n0",v:0.7,a:1.5,d:2, r: 1.5, i: 'bandpass', j: 2000, u: 5},{w:"sine",v:1,t:2,f:1,d:0.02,g:1,}]},
+                "Pixel Dust Bomb": {fx:{R:0.2,V:0,E:0.1,D:0},o:[{w:"n0", v:1, a:0.01, d:0.4, r:0.4, p:0.2, q:0.01, b: 4}]}
+            };
+            let timbres = { ...defaultTimbres };
+
+            const longToShort = {
+                g: 'g', w: 'w', v: 'v', t: 't', f: 'f', a: 'a', h: 'h', d: 'd', s: 's', r: 'r', p: 'p', q: 'q', k: 'k',
+                slide: 'l', dSlide: 'm', sCurve: 'c', crush: 'b', tremolo: 'o',
+                filter: 'i', fFreq: 'j', fQ: 'u'
+            };
+            const shortToLong = Object.fromEntries(Object.entries(longToShort).map(a => a.reverse()));
+
+            const paramDefs = {
+                g: { min: 0, max: 4, step: 1, name: 'Route' }, w: { type: 'select', options: ['sine', 'square', 'sawtooth', 'triangle', 'n0', 'n1', 'w9999'], name: 'Wave' },
+                v: { min: 0, max: 20, step: 0.01, name: 'Volume' }, t: { min: 0, max: 10, step: 0.01, name: 'Tune' },
+                f: { min: 0, max: 2000, step: 1, name: 'Freq' }, a: { min: 0, max: 2, step: 0.01, name: 'Attack' },
+                h: { min: 0, max: 2, step: 0.01, name: 'Hold' }, d: { min: 0, max: 2, step: 0.01, name: 'Decay' },
+                s: { min: 0, max: 1, step: 0.01, name: 'Sustain' }, r: { min: 0, max: 2, step: 0.01, name: 'Release' },
+                p: { min: 0, max: 4, step: 0.01, name: 'Pitch Bend' }, q: { min: 0, max: 2, step: 0.01, name: 'Bend Speed' },
+                k: { min: -4, max: 4, step: 0.01, name: 'Key Track' }, slide: { min: -1000, max: 1000, step: 1, name: 'Slide' },
+                dSlide: { min: -1000, max: 1000, step: 1, name: 'Delta Slide' }, sCurve: { min: 0, max: 5, step: 0.01, name: 'Shape Curve' },
+                crush: { min: 0, max: 8, step: 1, name: 'BitCrush' }, tremolo: { min: 0, max: 1, step: 0.01, name: 'Tremolo' },
+                filter: { type: 'select', options: ['off', 'lowpass', 'highpass', 'bandpass', 'notch'], name: 'Filter' },
+                fFreq: { min: 20, max: 20000, step: 1, name: 'Filter Freq' }, fQ: { min: 0.01, max: 20, step: 0.01, name: 'Filter Q' }
+            };
+            const paramKeys = Object.keys(paramDefs);
+            let lockedParams = new Set();
+            
+            function populateEditor(timbreName) {
+                const patchData = timbres[timbreName];
+                if (!patchData) return;
+                
+                const timbre = patchData.o || patchData; // Handle old and new patch formats
+                const fx = patchData.fx || {R:0.3, V:0, E:0, D:0}; // Default FX
+
+                oscsSelect.value = timbre.length;
+                patchNameInput.value = timbreName;
+                
+                // Populate global FX
+                ['Reverb', 'Vibrato', 'Echo', 'Distortion'].forEach(effect => {
+                    const knob = document.getElementById(`${effect.toLowerCase()}-knob`);
+                    const value = fx[effect.charAt(0)] || 0;
+                    handleGlobalKnobUpdate(knob, value);
+                });
+
+                for(let i = 1; i <= 4; i++) {
+                    const oscDef = timbre[i-1] || {};
+                    paramKeys.forEach(key => {
+                        const def = paramDefs[key];
+                        const el = document.getElementById(`${key}${i}`);
+                        const defaultValue = synth._createParamDefaults({})[key];
+                        const value = oscDef[key] !== undefined ? oscDef[key] : defaultValue;
+                        
+                        if (def.type === 'select') {
+                            el.value = value;
+                        } else {
+                            const normalizedValue = Math.max(0, Math.min(1, (value - def.min) / (def.max - def.min)));
+                            el.value = normalizedValue;
+                            updateKnobUI(el, normalizedValue, def);
+                        }
+                    });
+                }
+                updateEditorRows();
+                updatePatchInput();
+            }
+
+            function updateEditorRows() {
+                const numOscs = parseInt(oscsSelect.value);
+                for(let i = 1; i <= 4; i++) {
+                    const row = document.getElementById(`osc-row-${i}`);
+                    row.style.display = i <= numOscs ? 'block' : 'none';
+                }
+            }
+
+            function updateTimbreFromEditor() {
+                const timbreName = timbreSelect.value;
+                timbres[timbreName] = buildPatchFromUI();
+                updatePatchInput();
+            }
+
+            function updatePatchInput() {
+                const timbreName = timbreSelect.value;
+                const patchData = timbres[timbreName];
+                const compactPatch = {
+                    fx: {
+                        R: patchData.fx.R, V: patchData.fx.V, E: patchData.fx.E, D: patchData.fx.D
+                    },
+                    o: patchData.o.map(osc => {
+                        const compactOsc = {};
+                        for (const key in osc) {
+                            if (longToShort[key]) {
+                                compactOsc[longToShort[key]] = osc[key];
+                            }
+                        }
+                        return compactOsc;
+                    })
+                };
+                patchInput.value = JSON.stringify(compactPatch);
+            }
+            
+            function loadPatchFromURL() {
+                if (window.location.hash.startsWith('#patch=')) {
+                    try {
+                        const encoded = window.location.hash.substring(7);
+                        const patchString = atob(encoded);
+                        const { name, patch } = JSON.parse(patchString);
+                        
+                        // Decompress patch
+                        const fullPatch = {
+                            fx: patch.fx,
+                            o: patch.o.map(osc => {
+                                const fullOsc = {};
+                                for (const key in osc) {
+                                    if(shortToLong[key]) {
+                                        fullOsc[shortToLong[key]] = osc[key];
+                                    }
+                                }
+                                return fullOsc;
+                            })
+                        };
+
+                        timbres[name] = fullPatch;
+                        populateTimbreSelect();
+                        timbreSelect.value = name;
+                        populateEditor(name);
+                        return true;
+                    } catch (e) {
+                        console.error("Failed to load patch from URL", e);
+                        return false;
+                    }
+                }
+                return false;
+            }
+            
+            function savePatch() {
+                const name = patchNameInput.value.trim();
+                if (!name) {
+                    alert("Please enter a patch name.");
+                    return;
+                }
+                const patch = buildPatchFromUI();
+                let savedPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
+                savedPatches[name] = patch;
+                localStorage.setItem('synthereal_patches', JSON.stringify(savedPatches));
+                loadUserPatches();
+                timbreSelect.value = name;
+                alert(`Patch "${name}" saved!`);
+            }
+
+            function buildPatchFromUI() {
+                const numOscs = parseInt(oscsSelect.value);
+                const newTimbre = [];
+                for (let i = 1; i <= numOscs; i++) {
+                    const oscDef = {};
+                    paramKeys.forEach(key => {
+                        const el = document.getElementById(`${key}${i}`);
+                        const def = paramDefs[key];
+                        if (def.type === 'select') {
+                            oscDef[key] = el.value;
+                        } else {
+                            const normalizedValue = parseFloat(el.value);
+                            let value = def.min + normalizedValue * (def.max - def.min);
+                            if (def.step === 1) value = Math.round(value);
+                            oscDef[key] = parseFloat(value.toFixed(4));
+                        }
+                    });
+                    newTimbre.push(oscDef);
+                }
+                const fx = {
+                    R: parseFloat(document.getElementById('reverb-value').textContent),
+                    V: parseFloat(document.getElementById('vibrato-value').textContent),
+                    E: parseFloat(document.getElementById('echo-value').textContent),
+                    D: parseFloat(document.getElementById('distortion-value').textContent),
+                };
+                return { fx, o: newTimbre };
+            }
+
+            function loadUserPatches() {
+                 let savedPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
+                 timbres = { ...defaultTimbres, ...savedPatches };
+                 populateTimbreSelect();
+            }
+
+            function populateTimbreSelect() {
+                const currentVal = timbreSelect.value;
+                timbreSelect.innerHTML = '';
+                const addOption = (name, group) => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    group.appendChild(opt);
+                };
+                
+                const defaultGroup = document.createElement('optgroup');
+                defaultGroup.label = "Default Patches";
+                for (const name in defaultTimbres) addOption(name, defaultGroup);
+                timbreSelect.appendChild(defaultGroup);
+
+                const userPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
+                if (Object.keys(userPatches).length > 0) {
+                    const userGroup = document.createElement('optgroup');
+                    userGroup.label = "User Patches";
+                    for (const name in userPatches) addOption(name, userGroup);
+                    timbreSelect.appendChild(userGroup);
+                }
+                timbreSelect.value = currentVal;
+            }
+
+
+            function updateKnobUI(knob, normalizedValue, definition) {
+                let value = definition.min + normalizedValue * (definition.max - definition.min);
+                if (definition.step === 1) value = Math.round(value);
+                const angle = normalizedValue * 270 - 135;
+                knob.style.setProperty('--knob-angle', angle);
+                const displayFormat = definition.step === 1 ? value.toString() : value.toFixed(2);
+                knob.parentElement.nextElementSibling.textContent = displayFormat;
+            }
+
+            // --- Initial Setup ---
+            
+            let editorHTML = '';
+            for (let i = 1; i <= 4; i++) {
+                editorHTML += `<div id="osc-row-${i}" class="p-4 bg-gray-700 rounded-lg">
+                    <h3 class="text-lg font-bold text-teal-400 mb-4">Oscillator ${i}</h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-11 gap-x-2 gap-y-4">`;
+                paramKeys.forEach(key => {
+                    const def = paramDefs[key];
+                    editorHTML += `<div class="flex flex-col items-center">
+                        <div class="flex items-center space-x-1 mb-1">
+                            <label class="text-xs text-gray-400">${def.name}</label>
+                            <button class="param-control-btn randomize-param-btn" data-key="${key}" data-osc="${i}" title="Randomize">🎲</button>
+                            <button class="param-control-btn lock-param-btn" data-key="${key}" data-osc="${i}" title="Lock">🔒</button>
+                        </div>`;
+                    if (def.type === 'select') {
+                        editorHTML += `<select id="${key}${i}" class="editor-select">
+                            ${def.options.map(o => `<option>${o}</option>`).join('')}
+                        </select>`;
+                    } else {
+                        editorHTML += `<div class="knob-control">
+                            <div id="${key}${i}" class="knob-input" data-key="${key}" data-osc="${i}"></div>
+                        </div>
+                        <div class="knob-value" contenteditable="true" data-key="${key}" data-osc="${i}">0.00</div>`;
+                    }
+                    editorHTML += `</div>`;
+                });
+                editorHTML += `</div></div>`;
+            }
+            editorGrid.innerHTML = editorHTML;
+            
+            // --- Event Listeners ---
+            timbreSelect.addEventListener('change', () => populateEditor(timbreSelect.value));
+            oscsSelect.addEventListener('change', () => { updateEditorRows(); updateTimbreFromEditor(); });
+            editorGrid.addEventListener('change', updateTimbreFromEditor);
+
+            let currentKnob = null; let startX = 0; let startValue = 0;
+            function handleKnobUpdate(knob, newValue) {
+                const key = knob.dataset.key; const def = paramDefs[key];
+                let value = Math.max(def.min, Math.min(def.max, newValue));
+                if (def.step === 1) value = Math.round(value);
+                const normalizedValue = (value - def.min) / (def.max - def.min);
+                knob.value = normalizedValue;
+                updateKnobUI(knob, normalizedValue, def); updateTimbreFromEditor();
+            }
+            function handleGlobalKnobUpdate(knob, newValue) {
+                const id = knob.id.replace('-knob', '');
+                const def = { min: 0, max: (id === 'vibrato' ? 50 : 1) };
+                let value = Math.max(def.min, Math.min(def.max, newValue));
+                const normalizedValue = (value - def.min) / (def.max - def.min);
+                const angle = normalizedValue * 270 - 135;
+                knob.style.setProperty('--knob-angle', angle);
+                document.getElementById(`${id}-value`).textContent = value.toFixed(2);
+                if (id === 'volume') synth.setVolume(value);
+                if (id === 'reverb') synth.setReverb(value);
+                if (id === 'vibrato') synth.setVibrato(value);
+                if (id === 'echo') synth.setEcho(value);
+                if (id === 'distortion') synth.setDistortion(value);
+            }
+            document.body.addEventListener('mousedown', e => {
+                const target = e.target;
+                if(target.classList.contains('knob-input')) {
+                    currentKnob = target; startX = e.clientX;
+                    
+                    const isGlobal = currentKnob.id.includes('-knob');
+                    if (isGlobal) {
+                        const id = currentKnob.id.replace('-knob', '');
+                        startValue = parseFloat(document.getElementById(`${id}-value`).textContent);
+                    } else {
+                        const key = currentKnob.dataset.key; const def = paramDefs[key];
+                        const normalizedValue = currentKnob.value !== undefined ? parseFloat(currentKnob.value) : 0.5;
+                        startValue = def.min + normalizedValue * (def.max - def.min);
+                    }
+                    document.body.style.cursor = 'ew-resize'; e.preventDefault();
+                }
+            });
+            document.addEventListener('mousemove', e => {
+                if(currentKnob) {
+                    const deltaX = e.clientX - startX;
+                    const isGlobal = currentKnob.id.includes('-knob');
+                    if (isGlobal) {
+                         handleGlobalKnobUpdate(currentKnob, startValue + (deltaX * ((currentKnob.id.includes('vibrato') ? 50 : 1) / 200)));
+                    } else {
+                        const key = currentKnob.dataset.key; const def = paramDefs[key];
+                        const sensitivity = (def.max - def.min) / 200;
+                        const newValue = startValue + deltaX * sensitivity;
+                        handleKnobUpdate(currentKnob, newValue);
+                    }
+                }
+            });
+            document.addEventListener('mouseup', () => { currentKnob = null; document.body.style.cursor = 'default'; });
+            document.body.addEventListener('contextmenu', e => {
+                const target = e.target;
+                if (target.classList.contains('knob-input')) {
+                    e.preventDefault();
+                    const isGlobal = target.id.includes('-knob');
+                    if (isGlobal) {
+                        const id = target.id.replace('-knob', '');
+                        let defaultValue = 0.0;
+                        if (id === 'volume' || id === 'reverb') defaultValue = 0.3;
+                        handleGlobalKnobUpdate(target, defaultValue);
+                    } else {
+                        const key = target.dataset.key;
+                        const defaultValue = synth._createParamDefaults({})[key];
+                        handleKnobUpdate(target, defaultValue);
+                    }
+                }
+            });
+            editorGrid.addEventListener('focusout', e => {
+                if(e.target.classList.contains('knob-value')) {
+                    const target = e.target; const key = target.dataset.key; const osc = target.dataset.osc;
+                    const knob = document.getElementById(`${key}${osc}`);
+                    handleKnobUpdate(knob, parseFloat(target.textContent));
+                }
+            });
+            editorGrid.addEventListener('keydown', e => { if(e.target.classList.contains('knob-value') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
+            editorGrid.addEventListener('click', e => {
+                const target = e.target.closest('.param-control-btn');
+                if (!target) return;
+                const key = target.dataset.key; const osc = target.dataset.osc; const id = `${key}${osc}`;
+                if (target.classList.contains('lock-param-btn')) {
+                    target.classList.toggle('locked');
+                    if (lockedParams.has(id)) lockedParams.delete(id); else lockedParams.add(id);
+                    target.innerHTML = lockedParams.has(id) ? '&#128274;' : '&#128275;';
+                }
+                if (target.classList.contains('randomize-param-btn')) {
+                    const def = paramDefs[key]; const el = document.getElementById(id);
+                    let randomVal = def.min + Math.random() * (def.max - def.min);
+                    if (def.step === 1) randomVal = Math.floor(randomVal);
+                    if (def.type === 'select') el.value = def.options[Math.floor(Math.random() * def.options.length)];
+                    else handleKnobUpdate(el, randomVal);
+                    updateTimbreFromEditor();
+                }
+            });
+            randomizeAllBtn.addEventListener('click', () => {
+                let hasOutput = false;
+                const numOscs = parseInt(oscsSelect.value);
+                const tempPatch = [];
+
+                for (let i = 1; i <= numOscs; i++) {
+                    const oscParams = {};
+                    paramKeys.forEach(key => {
+                        const id = `${key}${i}`;
+                        if (lockedParams.has(id)) {
+                             const el = document.getElementById(id);
+                             const def = paramDefs[key];
+                             if(def.type === 'select') {
+                                oscParams[key] = el.value;
+                             } else {
+                                const normalizedValue = parseFloat(el.value);
+                                let value = def.min + normalizedValue * (def.max - def.min);
+                                if (def.step === 1) value = Math.round(value);
+                                oscParams[key] = value;
+                             }
+                        } else {
+                            const def = paramDefs[key];
+                            let randomVal = def.min + Math.random() * (def.max - def.min);
+                            if (def.step === 1) randomVal = Math.floor(randomVal);
+                            if (def.type === 'select') {
+                                oscParams[key] = def.options[Math.floor(Math.random() * def.options.length)];
+                            } else {
+                                // Musical clamping
+                                if(['a','h','d','r'].includes(key)) randomVal = Math.pow(Math.random(), 3) * 0.5;
+                                if(key === 'v') randomVal = Math.pow(Math.random(), 2) * def.max;
+                                oscParams[key] = randomVal;
+                            }
+                        }
+                    });
+                    tempPatch.push(oscParams);
+                    if (oscParams.g === 0) hasOutput = true;
+                }
+
+                if (!hasOutput && numOscs > 0) {
+                    let forcedOutput = false;
+                    for(let i=0; i<numOscs; i++) {
+                        if (!lockedParams.has(`g${i+1}`)) {
+                            tempPatch[i].g = 0;
+                            forcedOutput = true;
+                            break;
+                        }
+                    }
+                    if(!forcedOutput) tempPatch[0].g = 0; // Fallback if all g are locked
+                }
+                
+                // Intelligent Chaining
+                for(let i=0; i<numOscs; i++) {
+                    if (lockedParams.has(`g${i+1}`)) continue;
+                    if (tempPatch[i].g !== 0) {
+                        tempPatch[i].g = Math.floor(Math.random() * (i + 1));
+                    }
+                }
+
+
+                // Apply the new patch
+                for (let i = 1; i <= numOscs; i++) {
+                    paramKeys.forEach(key => {
+                        const id = `${key}${i}`;
+                        const el = document.getElementById(id);
+                        const def = paramDefs[key];
+                        const value = tempPatch[i-1][key];
+                        if (def.type === 'select') el.value = value;
+                        else handleKnobUpdate(el, value);
+                    });
+                }
+                updateTimbreFromEditor();
+            });
+            
+            savePatchBtn.addEventListener('click', savePatch);
+            copyPatchBtn.addEventListener('click', () => {
+                const timbreName = patchNameInput.value || "My Patch";
+                const patchData = buildPatchFromUI();
+                const compactPatch = {
+                    fx: patchData.fx,
+                    o: patchData.o.map(osc => {
+                        const compactOsc = {};
+                        for (const key in osc) { if (longToShort[key]) { compactOsc[longToShort[key]] = osc[key]; } }
+                        return compactOsc;
+                    })
+                };
+                const patchString = JSON.stringify({ name: timbreName, patch: compactPatch });
+                const encoded = btoa(patchString);
+                const baseURL = window.location.origin + window.location.pathname;
+                const shareableURL = `${baseURL}#patch=${encoded}`;
+                navigator.clipboard.writeText(shareableURL).then(() => {
+                    alert('Shareable URL copied to clipboard!');
+                });
+            });
+
+            testNoteBtn.addEventListener('mousedown', () => synth.noteOn(60, 100, buildPatchFromUI().o));
+            testNoteBtn.addEventListener('mouseup', () => synth.noteOff(60));
+            testNoteBtn.addEventListener('mouseleave', () => synth.noteOff(60));
+
+            const keyToNote = { 'a': 60, 'w': 61, 's': 62, 'e': 63, 'd': 64, 'f': 65, 't': 66, 'g': 67, 'y': 68, 'h': 69, 'u': 70, 'j': 71, 'k': 72 };
+            const pressedKeys = new Set();
+            document.addEventListener('keydown', e => {
+                if (e.target.isContentEditable || e.target.tagName === 'SELECT' || e.target.id === 'patch-name-input') return;
+                const note = keyToNote[e.key];
+                if (note && !pressedKeys.has(note)) {
+                    pressedKeys.add(note);
+                    synth.noteOn(note, 100, buildPatchFromUI().o);
+                }
+            });
+            document.addEventListener('keyup', e => {
+                const note = keyToNote[e.key];
+                if (note) {
+                    pressedKeys.delete(note);
+                    synth.noteOff(note);
+                }
+            });
+
+            loadUserPatches();
+            if(!loadPatchFromURL()) {
+                 timbreSelect.value = "Crystal Piano";
+                populateEditor(timbreSelect.value);
+            }
+            
+            const globalKnobs = ['volume', 'reverb', 'vibrato', 'echo', 'distortion'];
+            globalKnobs.forEach(id => {
+                const knob = document.getElementById(`${id}-knob`);
+                const valueEl = document.getElementById(`${id}-value`);
+                const def = { min: 0, max: (id === 'vibrato' ? 50 : 1) };
+                const value = parseFloat(valueEl.textContent);
+                const normalizedValue = (value - def.min) / (def.max - def.min);
+                const angle = normalizedValue * 270 - 135;
+                knob.style.setProperty('--knob-angle', angle);
+            });
+        });
+    </script>
+</body>
+</html>
