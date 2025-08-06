@@ -691,8 +691,8 @@ function r(){
       if (selected) { shadowBlur = THEME.shadows.blurNodeSelected; lineWidth = baseLineWidth + 3; }
       
       x.strokeStyle = color; x.fillStyle = color; x.shadowBlur = shadowBlur; x.shadowColor = color; x.lineWidth = lineWidth;
-      x.beginPath(); x.arc(kx, ky-2, radius, 0, Math.PI * 2); x.stroke();
-      x.beginPath(); x.arc(kx, ky-2, active ? 1 : 3, 0, Math.PI * 2); x.fill();
+      x.beginPath(); x.arc(kx, ky, radius, 0, Math.PI * 2); x.stroke();
+      x.beginPath(); x.arc(kx, ky, active ? 1 : 3, 0, Math.PI * 2); x.fill();
       
       if ((selected && active) || (selected && sustained)) {
           x.strokeStyle = THEME.colors.innerSelection;
@@ -700,7 +700,7 @@ function r(){
           x.shadowBlur = THEME.shadows.blurNode;
           x.shadowColor = x.strokeStyle;
           x.beginPath();
-          x.arc(kx, ky-2, baseRadius * 0.75, 0, Math.PI * 2);
+          x.arc(kx, ky, baseRadius * 0.75, 0, Math.PI * 2);
           x.stroke();
       }
 
