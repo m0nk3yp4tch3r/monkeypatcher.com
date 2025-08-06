@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body{margin:0;background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block}
+#i{position:absolute;top:10px;left:10px;color:#0f0;font:10px monospace;text-shadow:0 0 5px #0f0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">Move mouse for pitch • Press any key to play • Click+Key to lock pitch</div>
+<script>
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d'),
+W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={},  // active oscillators
+      m={},  // key->frequency mapping
+      d=new Uint8Array(A.frequencyBinCount);
+
+let mx=W/2,my=H/2,md=0,t=0;
+
+// Mouse tracking
+onmousemove=e=>{mx=e.x;my=e.y};
+onmousedown=e=>md=1;
+onmouseup=e=>md=0;
+
+// Calculate frequency from mouse position
+const F=()=>Math.pow(2,(mx/W*4))*55*Math.pow(2,1-my/H*3);
+
+// Keyboard handlers
+onkeydown=e=>{
+  const k=e.key,f=md?m[k]=F():m[k]||F();
+  
+  if(!o[k]){
+    const s=a.createOscillator(),
+          v=a.createGain(),
+          p=a.createStereoPanner();
+    
+    // Sound design
+    s.frequency.value=f;
+    s.type=['sine','square','sawtooth','triangle'][~~(f/100)%4];
+    p.pan.value=(mx/W-0.5)*2;
+    
+    // Envelope
+    v.gain.setValueAtTime(0,a.currentTime);
+    v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.01);
+    v.gain.exponentialRampToValueAtTime(0.2,a.currentTime+0.1);
+    
+    // Connect
+    s.connect(v);
+    v.connect(p);
+    p.connect(g);
+    s.start();
+    
+    o[k]={s,v,f};
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  if(o[k]){
+    const {s,v}=o[k];
+    v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2);
+    setTimeout(()=>{
+      s.stop();
+      s.disconnect();
+      delete o[k];
+    },200);
+  }
+};
+
+// Render loop
+function r(){
+  requestAnimationFrame(r);
+  
+  // Get audio data
+  A.getByteTimeDomainData(d);
+  
+  // Fade
+  x.fillStyle='rgba(0,0,0,0.08)';
+  x.fillRect(0,0,W,H);
+  
+  // Draw frequency grid
+  x.strokeStyle='rgba(0,255,0,0.1)';
+  x.lineWidth=1;
+  for(let i=0;i<10;i++){
+    x.beginPath();
+    x.moveTo(i*W/10,0);
+    x.lineTo(i*W/10,H);
+    x.moveTo(0,i*H/10);
+    x.lineTo(W,i*H/10);
+    x.stroke();
+  }
+  
+  // Mouse frequency indicator
+  const cf=F();
+  x.fillStyle='#ff0';
+  x.shadowBlur=20;
+  x.shadowColor='#ff0';
+  x.beginPath();
+  x.arc(mx,my,5,0,Math.PI*2);
+  x.fill();
+  x.fillStyle='#fff';
+  x.font='12px monospace';
+  x.fillText(~~cf+'Hz',mx+10,my-10);
+  
+  // Draw waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=10;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Spectrum bars
+  t+=0.02;
+  for(let i=0;i<l;i+=32){
+    const v=d[i]/255,
+          h=v*H*0.4;
+    x.strokeStyle=`hsl(${(t*50+i/4)%360},100%,50%)`;
+    x.shadowColor=x.strokeStyle;
+    x.lineWidth=3;
+    x.beginPath();
+    x.moveTo(i/l*W,H);
+    x.lineTo(i/l*W,H-h);
+    x.stroke();
+  }
+  
+  // Active notes
+  const k=Object.keys(o);
+  if(k.length){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.shadowBlur=10;
+    x.font='16px monospace';
+    let y=30;
+    k.forEach(key=>{
+      x.fillText(`[${key}] ${~~o[key].f}Hz`,10,y+=20);
+    });
+  }
+  
+  // Locked keys indicator
+  const lk=Object.keys(m);
+  if(lk.length){
+    x.fillStyle='#f0f';
+    x.shadowColor='#f0f';
+    x.font='12px monospace';
+    x.fillText('Locked: '+lk.join(' '),10,H-20);
+  }
+}
+r();
+
+// Resume audio on click
+onclick=()=>a.state=='suspended'&&a.resume();
+</script>
+</body>
+</html>

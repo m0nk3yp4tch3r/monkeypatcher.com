@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+*{margin:0;padding:0}
+body{background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block;width:100vw;height:100vh}
+#i{position:fixed;top:10px;left:10px;color:#0f0;font:10px monospace;text-shadow:0 0 5px #0f0;pointer-events:none;z-index:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">Hold key + move mouse = continuous sound • Release to assign • Click dot to remove</div>
+<script>
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d'),
+W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={},  // active oscillators
+      m={},  // key->frequency mapping
+      p={},  // key->position mapping
+      d=new Uint8Array(A.frequencyBinCount);
+
+let mx=W/2,my=H/2,t=0,hk=null;
+
+// Calculate frequency from position
+const F=(x,y)=>Math.pow(2,(x/W*4))*55*Math.pow(2,1-y/H*3);
+
+// Mouse tracking
+onmousemove=e=>{
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Update frequency if key is held
+  if(hk&&o[hk]){
+    const f=F(mx,my);
+    o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    o[hk].p.pan.value=(mx/W-0.5)*2;
+    o[hk].f=f;
+  }
+};
+
+// Click to remove assignment
+onclick=e=>{
+  // Check if clicking on a dot
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    const dist=Math.sqrt((e.clientX-kx)**2+(e.clientY-ky)**2);
+    if(dist<20){
+      delete m[k];
+      delete p[k];
+    }
+  });
+  
+  // Resume audio if needed
+  a.state=='suspended'&&a.resume();
+};
+
+// Keyboard handlers
+onkeydown=e=>{
+  const k=e.key;
+  if(!o[k]&&!e.repeat){
+    hk=k;
+    const f=F(mx,my);
+    
+    const s=a.createOscillator(),
+          v=a.createGain(),
+          n=a.createStereoPanner();
+    
+    s.frequency.value=f;
+    s.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+    n.pan.value=(mx/W-0.5)*2;
+    
+    v.gain.setValueAtTime(0,a.currentTime);
+    v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+    
+    s.connect(v);
+    v.connect(n);
+    n.connect(g);
+    s.start();
+    
+    o[k]={s,v,p:n,f};
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  if(o[k]){
+    // Assign to current position
+    m[k]=o[k].f;
+    p[k]={x:mx,y:my};
+    
+    // Fade out
+    const {s,v}=o[k];
+    v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);
+    setTimeout(()=>{
+      s.stop();
+      s.disconnect();
+      delete o[k];
+    },300);
+    
+    if(hk===k)hk=null;
+  }
+};
+
+// Quick play for assigned keys
+onkeypress=e=>{
+  const k=e.key;
+  if(m[k]&&!o[k]){
+    const s=a.createOscillator(),
+          v=a.createGain(),
+          n=a.createStereoPanner();
+    
+    s.frequency.value=m[k];
+    s.type=['sine','triangle','square','sawtooth'][~~(m[k]/100)%4];
+    n.pan.value=(p[k].x/W-0.5)*2;
+    
+    v.gain.setValueAtTime(0.3,a.currentTime);
+    v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.5);
+    
+    s.connect(v);
+    v.connect(n);
+    n.connect(g);
+    s.start();
+    
+    setTimeout(()=>{s.stop();s.disconnect()},500);
+  }
+};
+
+// Render loop
+function r(){
+  requestAnimationFrame(r);
+  
+  // Get audio data
+  A.getByteTimeDomainData(d);
+  
+  // Fade
+  x.fillStyle='rgba(0,0,0,0.08)';
+  x.fillRect(0,0,W,H);
+  
+  // Oscilloscope grid
+  x.strokeStyle='rgba(0,255,0,0.05)';
+  x.lineWidth=1;
+  for(let i=1;i<10;i++){
+    x.beginPath();
+    x.moveTo(i*W/10,0);
+    x.lineTo(i*W/10,H);
+    x.stroke();
+  }
+  for(let i=1;i<8;i++){
+    x.beginPath();
+    x.moveTo(0,i*H/8);
+    x.lineTo(W,i*H/8);
+    x.stroke();
+  }
+  
+  // Draw assigned positions
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    
+    // Oscilloscope style dot
+    x.strokeStyle='#0f0';
+    x.fillStyle='#0f0';
+    x.shadowBlur=15;
+    x.shadowColor='#0f0';
+    x.lineWidth=2;
+    
+    // Outer ring
+    x.beginPath();
+    x.arc(kx,ky,12,0,Math.PI*2);
+    x.stroke();
+    
+    // Inner dot
+    x.beginPath();
+    x.arc(kx,ky,3,0,Math.PI*2);
+    x.fill();
+    
+    // Frequency readout
+    x.fillStyle='#0f0';
+    x.font='9px monospace';
+    x.fillText(~~m[k]+'Hz',kx+15,ky+3);
+  });
+  
+  // Mouse cursor with oscilloscope style
+  const cf=F(mx,my);
+  if(hk){
+    // Active dragging
+    x.strokeStyle='#ff0';
+    x.shadowColor='#ff0';
+    x.shadowBlur=20;
+    x.lineWidth=2;
+    x.beginPath();
+    x.arc(mx,my,15,0,Math.PI*2);
+    x.stroke();
+    x.beginPath();
+    x.arc(mx,my,8,0,Math.PI*2);
+    x.stroke();
+  }else{
+    // Crosshair
+    x.strokeStyle='#0f0';
+    x.shadowBlur=10;
+    x.shadowColor='#0f0';
+    x.lineWidth=1;
+    x.beginPath();
+    x.moveTo(mx-15,my);
+    x.lineTo(mx+15,my);
+    x.moveTo(mx,my-15);
+    x.lineTo(mx,my+15);
+    x.stroke();
+  }
+  
+  // Frequency display
+  x.fillStyle='#0f0';
+  x.font='10px monospace';
+  x.fillText(~~cf+'Hz',mx+20,my-20);
+  
+  // Main waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=15;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Oscilloscope beam sweep effect
+  t+=0.015;
+  const sx=t%1*W;
+  x.strokeStyle='#0f0';
+  x.shadowBlur=30;
+  x.shadowColor='#0f0';
+  x.globalAlpha=0.5;
+  x.lineWidth=1;
+  x.beginPath();
+  x.moveTo(sx,0);
+  x.lineTo(sx,H);
+  x.stroke();
+  x.globalAlpha=1;
+  
+  // Frequency spectrum bars
+  for(let i=0;i<W;i+=30){
+    const idx=~~(i/W*l),
+          v=d[idx]/255,
+          h=v*H*0.4;
+    
+    // Oscilloscope phosphor color
+    const intensity=v*100+50;
+    x.strokeStyle=`rgb(0,${intensity},0)`;
+    x.shadowColor=x.strokeStyle;
+    x.shadowBlur=10;
+    x.lineWidth=15;
+    x.globalAlpha=0.6;
+    x.beginPath();
+    x.moveTo(i,H);
+    x.lineTo(i,H-h);
+    x.stroke();
+  }
+  x.globalAlpha=1;
+  
+  // Active key indicator
+  if(hk){
+    x.fillStyle='#ff0';
+    x.shadowColor='#ff0';
+    x.shadowBlur=15;
+    x.font='16px monospace';
+    x.fillText('▶ '+hk+' : '+~~o[hk].f+'Hz',10,H-20);
+  }
+  
+  // Assigned keys list
+  const ak=Object.keys(m);
+  if(ak.length){
+    x.fillStyle='#0f0';
+    x.shadowColor='#0f0';
+    x.font='10px monospace';
+    x.fillText('Keys: '+ak.join(' '),10,H-40);
+  }
+}
+r();
+
+// Fullscreen on F key
+document.addEventListener('keydown',e=>{
+  if(e.key=='F'&&!e.repeat)c.requestFullscreen();
+});
+</script>
+</body>
+</html>

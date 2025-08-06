@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+*{margin:0;padding:0}
+body{background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block;width:100vw;height:100vh}
+#i{position:fixed;top:10px;left:10px;color:#0f0;font:10px monospace;text-shadow:0 0 5px #0f0;pointer-events:none;z-index:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">Key+Move or Click+Key = assign • Space = sustain • Esc = stop all</div>
+<script>
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d'),
+W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={},  // active oscillators
+      m={},  // key->frequency mapping
+      p={},  // key->position mapping
+      s={},  // sustained keys
+      e={},  // empty positions (no key assigned)
+      d=new Uint8Array(A.frequencyBinCount);
+
+let mx=W/2,my=H/2,t=0,hk=null,md=0,pv=null,pk=new Set(),esc=0,ei=0;
+
+// Calculate frequency from position
+const F=(x,y)=>Math.pow(2,(x/W*4))*55*Math.pow(2,1-y/H*3);
+
+// Stop all sounds
+const stopAll=()=>{
+  Object.keys(o).forEach(k=>{
+    o[k].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+    setTimeout(()=>{o[k].s.stop();o[k].s.disconnect();delete o[k]},100);
+  });
+  Object.keys(s).forEach(k=>delete s[k]);
+};
+
+// Mouse tracking
+onmousemove=e=>{
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Update frequency if unassigned key is held
+  if(hk&&o[hk]&&!o[hk].assigned){
+    const f=F(mx,my);
+    o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    o[hk].p.pan.value=(mx/W-0.5)*2;
+    o[hk].f=f;
+    o[hk].mx=mx;
+    o[hk].my=my;
+  }
+  
+  // Update preview if mouse is down
+  if(md&&pv){
+    const f=F(mx,my);
+    pv.s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    pv.p.pan.value=(mx/W-0.5)*2;
+    pv.mx=mx;
+    pv.my=my;
+  }
+};
+
+// Mouse down - preview or remove
+onmousedown=e=>{
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Check if clicking on an assigned key
+  let clicked=false;
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    const dist=Math.sqrt((mx-kx)**2+(my-ky)**2);
+    if(dist<25){
+      clicked=true;
+      // Stop if sustained
+      if(s[k]&&o[k]){
+        o[k].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+        setTimeout(()=>{o[k].s.stop();o[k].s.disconnect();delete o[k]},100);
+        delete s[k];
+      }
+      delete m[k];
+      delete p[k];
+    }
+  });
+  
+  // Check if clicking on empty position
+  Object.keys(e).forEach(id=>{
+    const {x:ex,y:ey}=e[id];
+    const dist=Math.sqrt((mx-ex)**2+(my-ey)**2);
+    if(dist<25){
+      clicked=true;
+      delete e[id];
+    }
+  });
+  
+  if(!clicked){
+    md=1;
+    // Start preview sound
+    const f=F(mx,my);
+    const osc=a.createOscillator(),
+          v=a.createGain(),
+          n=a.createStereoPanner();
+    
+    osc.frequency.value=f;
+    osc.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+    n.pan.value=(mx/W-0.5)*2;
+    
+    v.gain.setValueAtTime(0,a.currentTime);
+    v.gain.linearRampToValueAtTime(0.3,a.currentTime+0.01);
+    
+    osc.connect(v);
+    v.connect(n);
+    n.connect(g);
+    osc.start();
+    
+    pv={s:osc,v,p:n,f,mx,my};
+  }
+  
+  // Resume audio if needed
+  a.state=='suspended'&&a.resume();
+};
+
+onmouseup=e=>{
+  md=0;
+  // Create empty position if no key was assigned during preview
+  if(pv&&!pv.assigned){
+    const id='e'+(ei++);
+    e[id]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    
+    // Stop preview only if no key is keeping it alive
+    if(!pv.keepAlive){
+      pv.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2);
+      setTimeout(()=>{pv.s.stop();pv.s.disconnect();pv=null},200);
+    }
+  }else if(pv&&!pv.keepAlive){
+    pv.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2);
+    setTimeout(()=>{pv.s.stop();pv.s.disconnect();pv=null},200);
+  }
+};
+
+// Keyboard handlers
+onkeydown=e=>{
+  const k=e.key;
+  if(e.repeat)return;
+  
+  // Handle Escape
+  if(k==='Escape'){
+    e.preventDefault();
+    esc=1;
+    stopAll();
+    return;
+  }
+  
+  // Handle space - toggle sustain
+  if(k===' '||k==='Space'){
+    e.preventDefault();
+    
+    // Toggle sustain for any active unassigned sound being created
+    if(hk&&o[hk]&&!o[hk].assigned){
+      // Immediately assign and sustain
+      m[hk]=o[hk].f;
+      p[hk]={x:o[hk].mx||mx,y:o[hk].my||my};
+      o[hk].assigned=true;
+      s[hk]=true;
+      hk=null;
+      return;
+    }
+    
+    // Check if hovering over empty position to fill
+    let filled=false;
+    Object.keys(e).forEach(id=>{
+      const {x:ex,y:ey}=e[id];
+      const dist=Math.sqrt((mx-ex)**2+(my-ey)**2);
+      if(dist<25&&!filled){
+        filled=true;
+        // Space doesn't fill empty positions, only characters do
+      }
+    });
+    
+    // Toggle sustain at mouse position if hovering
+    const f=F(mx,my);
+    let found=false;
+    Object.keys(p).forEach(key=>{
+      const {x:kx,y:ky}=p[key];
+      const dist=Math.sqrt((mx-kx)**2+(my-ky)**2);
+      if(dist<25){
+        found=true;
+        if(s[key]){
+          delete s[key];
+          if(o[key]&&!pk.has(key)){
+            o[key].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+            setTimeout(()=>{o[key].s.stop();o[key].s.disconnect();delete o[key]},100);
+          }
+        }else{
+          s[key]=true;
+          if(!o[key]){
+            // Start the sustained note
+            const osc=a.createOscillator(),
+                  v=a.createGain(),
+                  n=a.createStereoPanner();
+            
+            osc.frequency.value=m[key];
+            osc.type=['sine','triangle','square','sawtooth'][~~(m[key]/100)%4];
+            n.pan.value=(p[key].x/W-0.5)*2;
+            
+            v.gain.setValueAtTime(0,a.currentTime);
+            v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+            
+            osc.connect(v);
+            v.connect(n);
+            n.connect(g);
+            osc.start();
+            
+            o[key]={s:osc,v,p:n,f:m[key],assigned:true};
+          }
+        }
+      }
+    });
+    
+    // Toggle sustain for pressed keys
+    if(!found&&!filled){
+      pk.forEach(key=>{
+        if(m[key]){
+          if(s[key]){
+            delete s[key];
+            if(o[key]&&!pk.has(key)){
+              o[key].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+              setTimeout(()=>{o[key].s.stop();o[key].s.disconnect();delete o[key]},100);
+            }
+          }else{
+            s[key]=true;
+          }
+        }
+      });
+    }
+    return;
+  }
+  
+  // Handle backspace
+  if(k==='Backspace'){
+    e.preventDefault();
+    
+    // Esc + Backspace = clear all
+    if(esc){
+      stopAll();
+      Object.keys(m).forEach(k=>delete m[k]);
+      Object.keys(p).forEach(k=>delete p[k]);
+      Object.keys(e).forEach(k=>delete e[k]);
+      Object.keys(s).forEach(k=>delete s[k]);
+      return;
+    }
+    
+    // Delete pressed assigned keys
+    pk.forEach(key=>{
+      if(m[key]){
+        if(o[key]){
+          o[key].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+          setTimeout(()=>{o[key].s.stop();o[key].s.disconnect();delete o[key]},100);
+        }
+        delete m[key];
+        delete p[key];
+        delete s[key];
+      }
+    });
+    
+    // Delete empty positions
+    Object.keys(e).forEach(id=>delete e[id]);
+    return;
+  }
+  
+  pk.add(k);
+  
+  // Check if hovering over empty position to fill
+  let filledEmpty=false;
+  Object.keys(e).forEach(id=>{
+    if(!filledEmpty){
+      const {x:ex,y:ey,f}=e[id];
+      const dist=Math.sqrt((mx-ex)**2+(my-ey)**2);
+      if(dist<25){
+        filledEmpty=true;
+        m[k]=f;
+        p[k]={x:ex,y:ey};
+        delete e[id];
+        
+        // Start playing
+        const osc=a.createOscillator(),
+              v=a.createGain(),
+              n=a.createStereoPanner();
+        
+        osc.frequency.value=f;
+        osc.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+        n.pan.value=(ex/W-0.5)*2;
+        
+        v.gain.setValueAtTime(0,a.currentTime);
+        v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+        
+        osc.connect(v);
+        v.connect(n);
+        n.connect(g);
+        osc.start();
+        
+        o[k]={s:osc,v,p:n,f,assigned:true};
+      }
+    }
+  });
+  
+  if(filledEmpty)return;
+  
+  // If mouse is down (preview mode), assign key to current position
+  if(md&&pv){
+    m[k]=F(mx,my);
+    p[k]={x:mx,y:my};
+    pv.assigned=true;
+    pv.keepAlive=true; // Keep sound alive if key stays pressed
+    return;
+  }
+  
+  // Check if key is already assigned
+  if(m[k]){
+    // Play assigned note
+    if(!o[k]){
+      const osc=a.createOscillator(),
+            v=a.createGain(),
+            n=a.createStereoPanner();
+      
+      osc.frequency.value=m[k];
+      osc.type=['sine','triangle','square','sawtooth'][~~(m[k]/100)%4];
+      n.pan.value=(p[k].x/W-0.5)*2;
+      
+      v.gain.setValueAtTime(0,a.currentTime);
+      v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+      if(!s[k])v.gain.exponentialRampToValueAtTime(0.2,a.currentTime+0.1);
+      
+      osc.connect(v);
+      v.connect(n);
+      n.connect(g);
+      osc.start();
+      
+      o[k]={s:osc,v,p:n,f:m[k],assigned:true};
+    }
+  }else{
+    // Unassigned key - start continuous sound
+    if(!o[k]){
+      hk=k;
+      const f=F(mx,my);
+      
+      const osc=a.createOscillator(),
+            v=a.createGain(),
+            n=a.createStereoPanner();
+      
+      osc.frequency.value=f;
+      osc.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+      n.pan.value=(mx/W-0.5)*2;
+      
+      v.gain.setValueAtTime(0,a.currentTime);
+      v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+      
+      osc.connect(v);
+      v.connect(n);
+      n.connect(g);
+      osc.start();
+      
+      o[k]={s:osc,v,p:n,f,assigned:false,mx,my};
+    }
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  
+  if(k==='Escape'){
+    esc=0;
+    return;
+  }
+  
+  if(k===' '||k==='Space'||k==='Backspace')return;
+  
+  pk.delete(k);
+  
+  // Handle preview mode key release
+  if(pv&&pv.keepAlive&&pv.assigned){
+    // Transfer preview to regular oscillator
+    const osc=a.createOscillator(),
+          v=a.createGain(),
+          n=a.createStereoPanner();
+    
+    osc.frequency.value=pv.f;
+    osc.type=['sine','triangle','square','sawtooth'][~~(pv.f/100)%4];
+    n.pan.value=(pv.mx/W-0.5)*2;
+    
+    v.gain.setValueAtTime(0.3,a.currentTime);
+    
+    osc.connect(v);
+    v.connect(n);
+    n.connect(g);
+    osc.start();
+    
+    o[k]={s:osc,v,p:n,f:pv.f,assigned:true};
+    
+    // Fade out preview
+    pv.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+    setTimeout(()=>{pv.s.stop();pv.s.disconnect();pv=null},100);
+  }
+  
+  if(o[k]){
+    if(!o[k].assigned){
+      // Assign unassigned key to current position
+      m[k]=o[k].f;
+      p[k]={x:o[k].mx||mx,y:o[k].my||my};
+    }
+    
+    // Don't stop if sustained
+    if(!s[k]){
+      const {s:osc,v}=o[k];
+      v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);
+      setTimeout(()=>{
+        osc.stop();
+        osc.disconnect();
+        delete o[k];
+      },300);
+    }
+    
+    if(hk===k)hk=null;
+  }
+};
+
+// Render loop
+function r(){
+  requestAnimationFrame(r);
+  
+  // Get audio data
+  A.getByteTimeDomainData(d);
+  
+  // Fade
+  x.fillStyle='rgba(0,0,0,0.08)';
+  x.fillRect(0,0,W,H);
+  
+  // Oscilloscope grid
+  x.strokeStyle='rgba(0,255,0,0.05)';
+  x.lineWidth=1;
+  for(let i=1;i<10;i++){
+    x.beginPath();
+    x.moveTo(i*W/10,0);
+    x.lineTo(i*W/10,H);
+    x.stroke();
+  }
+  for(let i=1;i<8;i++){
+    x.beginPath();
+    x.moveTo(0,i*H/8);
+    x.lineTo(W,i*H/8);
+    x.stroke();
+  }
+  
+  // Draw empty positions
+  Object.keys(e).forEach(id=>{
+    const {x:ex,y:ey,f}=e[id];
+    
+    x.strokeStyle='#666';
+    x.shadowBlur=10;
+    x.shadowColor='#666';
+    x.lineWidth=1;
+    x.setLineDash([5,5]);
+    
+    x.beginPath();
+    x.arc(ex,ey,15,0,Math.PI*2);
+    x.stroke();
+    x.setLineDash([]);
+    
+    x.fillStyle='#666';
+    x.font='9px monospace';
+    x.textAlign='left';
+    x.fillText(~~f+'Hz',ex+20,ey+3);
+  });
+  
+  // Draw assigned positions
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    const active=o[k]&&o[k].assigned;
+    const sustained=s[k];
+    
+    // Oscilloscope style dot
+    x.strokeStyle=sustained?'#f0f':active?'#ff0':'#0f0';
+    x.fillStyle=sustained?'#f0f':active?'#ff0':'#0f0';
+    x.shadowBlur=sustained?30:active?25:15;
+    x.shadowColor=sustained?'#f0f':active?'#ff0':'#0f0';
+    x.lineWidth=sustained?3:2;
+    
+    // Outer ring
+    x.beginPath();
+    x.arc(kx,ky,sustained?20:active?18:15,0,Math.PI*2);
+    x.stroke();
+    
+    // Pulse effect for sustained
+    if(sustained){
+      x.globalAlpha=0.3+Math.sin(t*3)*0.2;
+      x.beginPath();
+      x.arc(kx,ky,25+Math.sin(t*3)*5,0,Math.PI*2);
+      x.stroke();
+      x.globalAlpha=1;
+    }
+    
+    // Inner dot
+    x.beginPath();
+    x.arc(kx,ky,sustained?5:3,0,Math.PI*2);
+    x.fill();
+    
+    // Character
+    x.fillStyle='#fff';
+    x.font='bold 14px monospace';
+    x.textAlign='center';
+    x.textBaseline='middle';
+    x.fillText(k.toUpperCase(),kx,ky);
+    
+    // Frequency readout
+    x.fillStyle=sustained?'#f0f':active?'#ff0':'#0f0';
+    x.font='9px monospace';
+    x.textAlign='left';
+    x.fillText(~~m[k]+'Hz',kx+25,ky+3);
+  });
+  
+  // Mouse cursor
+  const cf=F(mx,my);
+  if(hk||md){
+    // Active dragging or preview
+    x.strokeStyle=md?'#0ff':'#ff0';
+    x.shadowColor=md?'#0ff':'#ff0';
+    x.shadowBlur=20;
+    x.lineWidth=2;
+    x.beginPath();
+    x.arc(mx,my,15,0,Math.PI*2);
+    x.stroke();
+    x.beginPath();
+    x.arc(mx,my,8,0,Math.PI*2);
+    x.stroke();
+  }else{
+    // Crosshair
+    x.strokeStyle='#0f0';
+    x.shadowBlur=10;
+    x.shadowColor='#0f0';
+    x.lineWidth=1;
+    x.beginPath();
+    x.moveTo(mx-15,my);
+    x.lineTo(mx+15,my);
+    x.moveTo(mx,my-15);
+    x.lineTo(mx,my+15);
+    x.stroke();
+  }
+  
+  // Frequency display
+  x.fillStyle='#0f0';
+  x.font='10px monospace';
+  x.textAlign='left';
+  x.fillText(~~cf+'Hz',mx+20,my-20);
+  
+  // Main waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=15;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Oscilloscope beam sweep effect
+  t+=0.015;
+  const sx=t%1*W;
+  x.strokeStyle='#0f0';
+  x.shadowBlur=30;
+  x.shadowColor='#0f0';
+  x.globalAlpha=0.5;
+  x.lineWidth=1;
+  x.beginPath();
+  x.moveTo(sx,0);
+  x.lineTo(sx,H);
+  x.stroke();
+  x.globalAlpha=1;
+  
+  // Frequency spectrum bars
+  for(let i=0;i<W;i+=30){
+    const idx=~~(i/W*l),
+          v=d[idx]/255,
+          h=v*H*0.4;
+    
+    const intensity=v*100+50;
+    x.strokeStyle=`rgb(0,${intensity},0)`;
+    x.shadowColor=x.strokeStyle;
+    x.shadowBlur=10;
+    x.lineWidth=15;
+    x.globalAlpha=0.6;
+    x.beginPath();
+    x.moveTo(i,H);
+    x.lineTo(i,H-h);
+    x.stroke();
+  }
+  x.globalAlpha=1;
+  
+  // Status indicators
+  if(hk){
+    x.fillStyle='#ff0';
+    x.shadowColor='#ff0';
+    x.shadowBlur=15;
+    x.font='16px monospace';
+    x.fillText('▶ '+hk.toUpperCase()+' : '+~~o[hk].f+'Hz',10,H-20);
+  }
+  
+  if(md&&pv){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.font='14px monospace';
+    x.fillText('◉ Preview: '+~~cf+'Hz',10,H-35);
+  }
+  
+  const sus=Object.keys(s);
+  if(sus.length){
+    x.fillStyle='#f0f';
+    x.shadowColor='#f0f';
+    x.font='12px monospace';
+    x.fillText('∞ '+sus.map(k=>k.toUpperCase()).join(' '),10,H-50);
+  }
+  
+  const playing=Object.keys(o).filter(k=>o[k].assigned&&!s[k]);
+  if(playing.length){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.font='12px monospace';
+    x.fillText('♪ '+playing.map(k=>k.toUpperCase()).join(' '),10,H-65);
+  }
+  
+  const ak=Object.keys(m);
+  if(ak.length){
+    x.fillStyle='#0f0';
+    x.shadowColor='#0f0';
+    x.font='10px monospace';
+    x.fillText('Keys: '+ak.map(k=>k.toUpperCase()).join(' '),10,H-80);
+  }
+  
+  if(Object.keys(e).length){
+    x.fillStyle='#666';
+    x.shadowColor='#666';
+    x.font='10px monospace';
+    x.fillText('Empty: '+Object.keys(e).length,10,H-95);
+  }
+}
+r();
+
+// Fullscreen on F key
+document.addEventListener('keydown',e=>{
+  if(e.key=='F'&&!e.repeat&&!m['f'])c.requestFullscreen();
+});
+</script>
+</body>
+</html>

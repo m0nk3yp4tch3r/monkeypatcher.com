@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<!-- Save this file as "help.html" in the same directory as the synth -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Oscilloscope Synth - Documentation</title>
+<style>
+body{
+  background:#111;
+  color:#0f0;
+  font:14px monospace;
+  line-height:1.8;
+  padding:40px;
+  max-width:800px;
+  margin:0 auto;
+}
+h1{
+  color:#0ff;
+  text-shadow:0 0 20px #0ff;
+  font-size:28px;
+  border-bottom:2px solid #0f0;
+  padding-bottom:10px;
+  text-align:center;
+  letter-spacing:3px;
+}
+h2{
+  color:#0f0;
+  text-shadow:0 0 10px #0f0;
+  margin-top:30px;
+  font-size:18px;
+  letter-spacing:1px;
+}
+h3{
+  color:#ff0;
+  font-size:14px;
+  margin-top:20px;
+}
+code{
+  background:#000;
+  padding:2px 6px;
+  color:#0ff;
+  border:1px solid #0f0;
+}
+.workflow{
+  background:#001100;
+  border:1px solid #0f0;
+  padding:15px;
+  margin:20px 0;
+  border-radius:5px;
+  box-shadow:0 0 20px rgba(0,255,0,0.1);
+}
+.key{
+  display:inline-block;
+  background:#000;
+  border:2px solid #0f0;
+  padding:4px 8px;
+  margin:2px;
+  color:#0ff;
+  font-weight:bold;
+  text-shadow:0 0 5px #0ff;
+  border-radius:3px;
+}
+ul{
+  list-style:none;
+  padding-left:20px;
+}
+li:before{
+  content:"→ ";
+  color:#0ff;
+}
+a{
+  color:#0ff;
+  text-decoration:none;
+}
+a:hover{
+  text-shadow:0 0 10px #0ff;
+  text-decoration:underline;
+}
+.indicator{
+  display:inline-block;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  margin-right:8px;
+  vertical-align:middle;
+}
+.cyan{background:#0cf;box-shadow:0 0 10px #0cf}
+.blue{background:#08f;box-shadow:0 0 10px #08f}
+.green{background:#0f0;box-shadow:0 0 10px #0f0;}
+.purple{background:#f0f;box-shadow:0 0 10px #f0f;}
+.gray{background:#666;border:1px dashed #666}
+</style>
+</head>
+<body>
+<h1>◊ OSCILLOSCOPE SYNTH DOCUMENTATION ◊</h1>
+
+<h2>BASIC CONTROLS</h2>
+<ul>
+<li><span class="key">A-Z/0-9</span> + <span class="key">MOUSE MOVE</span> = Assign node to position.</li>
+<li><span class="key">CLICK</span> = Preview sound / Select node / Drag selected nodes.</li>
+<li><span class="key">TAB</span> = Cycle through Edit Modes (OSC, ADSR, FILTER, FX, MOD).</li>
+<li><span class="key">ARROW UP/DOWN</span> or <span class="key">SCROLL</span> = Adjust parameter value.</li>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Select parameter type.</li>
+<li><span class="key">SPACE</span> = Toggle sustain (continuous play).</li>
+<li><span class="key">BACKSPACE</span> = Delete selected/pressed nodes.</li>
+<li><span class="key">ESC</span> = Stop all sounds + clear selection.</li>
+<li><span class="key">RIGHT CLICK</span> = Remove single node.</li>
+<li><span class="key">CTRL/CMD</span> + <span class="key">A</span> = Select all nodes.</li>
+<li><span class="key">SHIFT</span> + <span class="key">F</span> = Fullscreen mode.</li>
+<li><span class="key">?</span> = Toggle help overlay.</li>
+</ul>
+
+<h2>ABOUT THE SYNTH</h2>
+<p>Soundscapes is a minimalistic JavaScript synthesizer. It transforms your screen into a playable instrument where you assign notes to keyboard characters and then perform with them, now with a full suite of sound-shaping tools.</p>
+
+<div class="workflow">
+<h3>Building Your Instrument</h3>
+<p>The primary goal of the synth is to turn your computer to multi oscillator keyboard instrument. By assigning alphanumeric keys (<span class="key">a-z</span>, <span class="key">0-9</span>) to different positions on the screen, you are mapping them to specific frequencies. Once a key is assigned, you can play it like a piano and tune it to your likings.</p>
+<ul>
+    <li><strong>Assign a Key:</strong> Move your mouse to a location, then press and hold a key like <span class="key">Q</span>. A sound will play. When you release the key, a node labeled "Q" will be created at that position.</li>
+    <li><strong>Play Your Instrument:</strong> Now, you can press the <span class="key">Q</span> key at any time to play that exact sound, no matter where your mouse is.</li>
+    <li><strong>Compose:</strong> Assign multiple keys like <span class="key">Q</span>, <span class="key">W</span>, <span class="key">E</span>, <span class="key">R</span> to create a musical scale or a chord, then play them with your keyboard.</li>
+</ul>
+</div>
+
+<div class="workflow">
+<h3>Selection & Manipulation</h3>
+<p>Once you have nodes on the screen, you can select and modify them individually or as a group.</p>
+<ul>
+    <li><strong>Select a Node:</strong> Simply click on any node to select it. It will glow cyan.</li>
+    <li><strong>Multi-Select:</strong> Hold <span class="key">SHIFT</span> or <span class="key">CTRL/CMD</span> and click multiple nodes to add them to your selection. You can also use <span class="key">CTRL/CMD</span> + <span class="key">A</span> to select all nodes.</li>
+    <li><strong>Drag Nodes:</strong> Click and drag a selected node to move it. If you have multiple nodes selected, they will all move together relative to the one you are dragging.</li>
+</ul>
+</div>
+
+<h2>EDIT MODES</h2>
+<p>Press <span class="key">TAB</span> to cycle through different modes for editing the selected nodes. The current mode is displayed in red at the bottom of the screen.</p>
+
+<div class="workflow">
+<h3>1. OSC MODE (Oscillator)</h3>
+<p>Controls the fundamental sound of a node.</p>
+<ul>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Cycle through oscillator waveforms (Sine, Triangle, Square, Sawtooth).</li>
+<li><span class="key">ARROW UP/DOWN</span> or <span class="key">SCROLL</span> = Adjust the node's master volume.</li>
+</ul>
+</div>
+
+<div class="workflow">
+<h3>2. ADSR MODE (Envelope)</h3>
+<p>Shapes the volume of a node over time.</p>
+<ul>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Select the envelope parameter to edit.</li>
+<li><strong>ATTACK:</strong> How long it takes for the sound to reach full volume.</li>
+<li><strong>DECAY:</strong> How long it takes to drop to the sustain level.</li>
+<li><strong>SUSTAIN:</strong> The volume level while a key is held down.</li>
+<li><strong>RELEASE:</strong> How long it takes for the sound to fade out after the key is released.</li>
+<li><span class="key">ARROW UP/DOWN</span> or <span class="key">SCROLL</span> = Adjust the selected parameter's value.</li>
+</ul>
+</div>
+
+<div class="workflow">
+<h3>3. FILTER MODE</h3>
+<p>Cuts or boosts frequencies to change the timbre of the sound.</p>
+<ul>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Cycle through filter types (Lowpass, Highpass, Bandpass, Notch).</li>
+<li><span class="key">ARROW UP/DOWN</span> or <span class="key">SCROLL</span> = Adjust the filter's cutoff frequency.</li>
+</ul>
+</div>
+
+<div class="workflow">
+<h3>4. FX MODE (Effects)</h3>
+<p>Adds various audio effects to the sound.</p>
+<ul>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Select the effect parameter to edit.</li>
+<li><strong>DISTORT:</strong> Adds harmonic distortion for a gritty sound.</li>
+<li><strong>REVERB:</strong> Simulates the sound of a room or space.</li>
+<li><strong>ECHO MIX:</strong> Controls the volume of the echo repeats.</li>
+<li><strong>ECHO FDBK:</strong> Controls how many times the echo repeats (feedback).</li>
+<li><strong>TREMOLO:</strong> Modulates the volume to create a pulsating effect.</li>
+<li><strong>PAN:</strong> Positions the sound in the stereo field (left/right).</li>
+<li><span class="key">ARROW UP/DOWN</span> or <span class="key">SCROLL</span> = Adjust the amount of the selected effect.</li>
+</ul>
+</div>
+
+<div class="workflow">
+<h3>5. MOD MODE (LFO Modulation)</h3>
+<p>Uses a Low-Frequency Oscillator (LFO) to create rhythmic changes to the sound.</p>
+<ul>
+<li><span class="key">ARROW LEFT/RIGHT</span> = Select the modulation target.</li>
+<li><strong>FILTER:</strong> The LFO modulates the filter frequency (classic "wobble" effect).</li>
+<li><strong>PITCH:</strong> The LFO modulates the oscillator's pitch (vibrato effect).</li>
+<li><span class="key">ARROW UP/DOWN</span> = Adjust the LFO Depth (how strong the modulation is).</li>
+<li><span class="key">SCROLL</span> = Adjust the LFO Rate (how fast the modulation is).</li>
+</ul>
+</div>
+
+
+<h2>VISUAL INDICATORS</h2>
+<ul>
+<li><span class="indicator green"></span> <strong>Green Ring</strong> = Assigned but not playing.</li>
+<li><span class="indicator cyan"></span> <strong>Cyan Ring</strong> = Selected node.</li>
+<li><span class="indicator purple"></span> <strong>Purple Ring</strong> = Sustained node.</li>
+<li><span class="indicator blue"></span> <strong>Blue Inner Ring</strong> = Indicates a selected node is also playing or sustained.</li>
+<li><strong>Pulsing/Glowing Ring</strong> = The node is currently playing sound.</li>
+<li><span class="indicator gray"></span> <strong>Gray Dashed</strong> = Empty placeholder for future assignment.</li>
+</ul>
+
+<h2>TROUBLESHOOTING</h2>
+<ul>
+<li><strong>No sound?</strong> Click anywhere to initialize the audio context. The "Click to Connect" message will turn green.</li>
+<li><strong>Stuck notes?</strong> Press <span class="key">ESC</span> to stop all sounds.</li>
+<li><strong>Too many nodes?</strong> <span class="key">ESC</span> + <span class="key">BACKSPACE</span> clears everything.</li>
+<li><strong>Fullscreen not working?</strong> Use <span class="key">SHIFT</span> + <span class="key">F</span>.</li>
+</ul>
+
+<p style="text-align:center;margin-top:20px">
+<a href="#" onclick="window.close()">← Back to Synth</a>
+</p>
+</body>
+</html>

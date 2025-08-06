@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body{margin:0;background:#000;overflow:hidden;font:10px monospace;color:#0f0}
+canvas{display:block}
+#i{position:absolute;top:10px;left:10px;text-shadow:0 0 5px #0f0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">QWERTYUIOP = C3-E4 | ASDFGHJKL = C4-G4 | ZXCVBNM = C5-F5</div>
+<script>
+// Audio context and analyser
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d'),
+W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// Note frequencies and keyboard mapping
+const n={
+q:130.81,w:146.83,e:164.81,r:174.61,t:196,y:220,u:246.94,i:261.63,o:293.66,p:329.63,
+a:261.63,s:293.66,d:329.63,f:349.23,g:392,h:440,j:493.88,k:523.25,l:587.33,
+z:523.25,x:587.33,c:659.25,v:698.46,b:783.99,n:880,m:987.77
+};
+
+// Active oscillators
+const o={};
+
+// Waveform data
+const d=new Uint8Array(A.frequencyBinCount),
+w=new Float32Array(A.fftSize);
+
+// Keyboard handlers
+onkeydown=e=>{
+  const k=e.key.toLowerCase();
+  if(n[k]&&!o[k]){
+    const s=a.createOscillator(),
+          f=a.createBiquadFilter(),
+          v=a.createGain();
+    
+    // Oscillator setup
+    s.frequency.value=n[k];
+    s.type=['sine','square','sawtooth','triangle'][Math.random()*4|0];
+    
+    // Filter for character
+    f.type='lowpass';
+    f.frequency.value=2000;
+    f.Q.value=5;
+    
+    // ADSR envelope
+    v.gain.setValueAtTime(0,a.currentTime);
+    v.gain.linearRampToValueAtTime(0.5,a.currentTime+0.01);
+    v.gain.exponentialRampToValueAtTime(0.2,a.currentTime+0.1);
+    
+    // Connect
+    s.connect(f);
+    f.connect(v);
+    v.connect(g);
+    s.start();
+    
+    o[k]={s,v,f};
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key.toLowerCase();
+  if(o[k]){
+    const {s,v}=o[k];
+    v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);
+    setTimeout(()=>{
+      s.stop();
+      s.disconnect();
+      delete o[k];
+    },300);
+  }
+};
+
+// Visualization
+let t=0;
+function r(){
+  requestAnimationFrame(r);
+  
+  // Get waveform data
+  A.getByteTimeDomainData(d);
+  A.getFloatTimeDomainData(w);
+  
+  // Fade effect
+  x.fillStyle='rgba(0,0,0,0.1)';
+  x.fillRect(0,0,W,H);
+  
+  // Draw waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=10;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Draw frequency bars
+  x.strokeStyle='#0ff';
+  x.lineWidth=1;
+  x.shadowColor='#0ff';
+  
+  for(let i=0;i<l;i+=16){
+    const v=d[i]/255,
+          h=v*H*0.3;
+    x.beginPath();
+    x.moveTo(i/l*W,H);
+    x.lineTo(i/l*W,H-h);
+    x.stroke();
+  }
+  
+  // Oscilloscope trigger line
+  t+=0.01;
+  x.strokeStyle=`hsl(${t*50%360},100%,50%)`;
+  x.shadowColor=x.strokeStyle;
+  x.beginPath();
+  x.moveTo(0,H/2);
+  x.lineTo(W,H/2);
+  x.stroke();
+  
+  // Active notes indicator
+  const k=Object.keys(o);
+  if(k.length){
+    x.fillStyle='#ff0';
+    x.shadowColor='#ff0';
+    x.font='20px monospace';
+    x.fillText('♪ '+k.join(' '),10,H-20);
+  }
+}
+r();
+
+// Click to resume audio context if needed
+onclick=()=>a.state=='suspended'&&a.resume();
+</script>
+</body>
+</html>

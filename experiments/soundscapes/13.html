@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+*{margin:0;padding:0;cursor:none}
+body{background:#000;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh}
+#i{position:fixed;top:10px;left:10px;color:#0f0;font:10px monospace;text-shadow:0 0 5px #0f0;pointer-events:none;z-index:1}
+#h{position:fixed;top:10px;right:10px;color:#0f0;font:20px monospace;text-shadow:0 0 10px #0f0;z-index:2;user-select:none}
+
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">? = help • Click/Key/Space/Esc = controls</div>
+<div id="h">?</div>
+<script>
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d');
+
+let W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={},  // active oscillators
+      m={},  // key->frequency mapping
+      p={},  // key->position mapping
+      s={},  // sustained keys
+      e={},  // empty positions
+      sel={}, // selected positions
+      d=new Uint8Array(A.frequencyBinCount);
+
+let mx=W/2,my=H/2,t=0,hk=null,md=0,pv=null,pk=new Set(),esc=0,ei=0,help=0,
+    drag=null,dragOff={x:0,y:0}; // drag state
+
+// Handle resize
+onresize=()=>{
+  // Store relative positions
+  const relPos={};
+  Object.keys(p).forEach(k=>{
+    relPos[k]={x:p[k].x/W,y:p[k].y/H};
+  });
+  const relEmpty={};
+  Object.keys(e).forEach(k=>{
+    relEmpty[k]={x:e[k].x/W,y:e[k].y/H};
+  });
+  
+  // Update dimensions
+  W=c.width=innerWidth;
+  H=c.height=innerHeight;
+  
+  // Restore positions
+  Object.keys(relPos).forEach(k=>{
+    p[k]={x:relPos[k].x*W,y:relPos[k].y*H};
+    m[k]=F(p[k].x,p[k].y);
+  });
+  Object.keys(relEmpty).forEach(k=>{
+    e[k]={x:relEmpty[k].x*W,y:relEmpty[k].y*H,f:F(relEmpty[k].x*W,relEmpty[k].y*H)};
+  });
+  
+  // Update mouse position
+  mx=mx/innerWidth*W;
+  my=my/innerHeight*H;
+};
+
+// Calculate frequency
+const F=(x,y)=>Math.pow(2,(x/W*4))*55*Math.pow(2,1-y/H*3);
+
+// ===================
+// CONTROL HANDLERS
+// ===================
+
+// Stop all sounds
+const stopAll=()=>{
+  Object.keys(o).forEach(k=>{
+    o[k].v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+    setTimeout(()=>{o[k].s.stop();o[k].s.disconnect();delete o[k]},100);
+  });
+  Object.keys(s).forEach(k=>delete s[k]);
+};
+
+// Create oscillator
+const createOsc=(f,x,y)=>{
+  const osc=a.createOscillator(),
+        v=a.createGain(),
+        n=a.createStereoPanner();
+  
+  osc.frequency.value=f;
+  osc.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+  n.pan.value=(x/W-0.5)*2;
+  
+  v.gain.setValueAtTime(0,a.currentTime);
+  v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.02);
+  
+  osc.connect(v);
+  v.connect(n);
+  n.connect(g);
+  osc.start();
+  
+  return {s:osc,v,p:n,f};
+};
+
+// Stop oscillator
+const stopOsc=(osc,time=0.3)=>{
+  osc.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+time);
+  setTimeout(()=>{osc.s.stop();osc.s.disconnect()},time*1000);
+};
+
+// ===================
+// MOUSE CONTROLS
+// ===================
+
+onmousemove=e=>{
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Handle node dragging (both mouse drag and keyboard selection drag)
+  if(drag||(pk.size&&Object.keys(sel).length)){
+
+    
+    if(drag){
+      // Move all selected nodes relative to drag
+      Object.keys(sel).forEach(k=>{
+        if(sel[k]&&p[k]){
+          if(k===drag){
+            p[k].x=mx;
+            p[k].y=my;
+            m[k]=F(mx,my);
+            // Update playing oscillator frequency
+            if(o[k]&&o[k].s){
+              o[k].s.frequency.exponentialRampToValueAtTime(m[k],a.currentTime+0.05);
+              o[k].p.pan.value=(mx/W-0.5)*2;
+            }
+          }else{
+            const origOff=dragOff.nodes[k];
+            if(origOff){
+              p[k].x=mx+origOff.x;
+              p[k].y=my+origOff.y;
+              m[k]=F(p[k].x,p[k].y);
+              // Update playing oscillator frequency
+              if(o[k]&&o[k].s){
+                o[k].s.frequency.exponentialRampToValueAtTime(m[k],a.currentTime+0.05);
+                o[k].p.pan.value=(p[k].x/W-0.5)*2;
+              }
+            }
+          }
+        }
+      });
+      return;
+    }
+  }
+  
+  // Update dragging unassigned key
+  if(hk&&o[hk]&&!o[hk].assigned){
+    const f=F(mx,my);
+    o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    o[hk].p.pan.value=(mx/W-0.5)*2;
+    o[hk].f=f;
+    o[hk].mx=mx;
+    o[hk].my=my;
+  }
+  
+  // Update preview
+  if(md&&pv){
+    const f=F(mx,my);
+    pv.s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    pv.p.pan.value=(mx/W-0.5)*2;
+    pv.mx=mx;
+    pv.my=my;
+  }
+};
+
+onmousedown=e=>{
+  if(e.button===2)return; // Skip right click
+  
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Check if clicking on documentation link in help
+  if(help){
+    const hx=W/2;
+    const hy=H/2-80;
+    const docLine=11; // Line index for documentation (0-based)
+    const lineY=hy+docLine*25;
+    const docText='→ DOCUMENTATION: help.html';
+    x.font='14px monospace';
+    x.textAlign='center';
+    const tw=x.measureText(docText).width;
+    x.textAlign='left';
+    
+    if(mx>hx-tw/2&&mx<hx+tw/2&&my>lineY-10&&my<lineY+10){
+      window.open('help.html','_blank');
+      return;
+    }
+    
+    // Click anywhere else closes help
+    help=false;
+    return;
+  }
+  
+  // Check clicks on positions
+  let clicked=false;
+  
+  // Click on assigned node - select and prepare for drag
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    const dist=Math.sqrt((mx-kx)**2+(my-ky)**2);
+    if(dist<25){
+      clicked=true;
+      
+      // If not already selected, clear other selections (unless shift/ctrl held)
+      if(!sel[k]&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey){
+        Object.keys(sel).forEach(sk=>delete sel[sk]);
+      }
+      
+      sel[k]=true;
+      
+      // Start drag
+      drag=k;
+      dragOff={x:mx,y:my,nodes:{}};
+      
+      // Store relative positions of all selected nodes
+      Object.keys(sel).forEach(sk=>{
+        if(sk!==k&&p[sk]){
+          dragOff.nodes[sk]={x:p[sk].x-mx,y:p[sk].y-my};
+        }
+      });
+    }
+  });
+  
+  // Click on empty position - remove it
+  if(!clicked){
+    Object.keys(e).forEach(id=>{
+      const {x:ex,y:ey}=e[id];
+      const dist=Math.sqrt((mx-ex)**2+(my-ey)**2);
+      if(dist<25){
+        clicked=true;
+        delete e[id];
+      }
+    });
+  }
+  
+  // Create preview or move empty position
+  if(!clicked){
+    // Clear selections if clicking empty space
+    if(!e.shiftKey&&!e.ctrlKey&&!e.metaKey){
+      Object.keys(sel).forEach(k=>delete sel[k]);
+    }
+    
+    md=1;
+    const f=F(mx,my);
+    const osc=createOsc(f,mx,my);
+    pv={...osc,mx,my};
+  }
+  
+  a.state=='suspended'&&a.resume();
+};
+
+onmouseup=e=>{
+  if(e.button===2)return;
+  
+  // End drag
+  if(drag){
+    drag=null;
+    dragOff={x:0,y:0};
+    return;
+  }
+  
+  md=0;
+  
+  // Create/move empty position
+  if(pv&&!pv.assigned){
+    // Move existing empty or create new
+    const emptyKeys=Object.keys(e);
+    if(emptyKeys.length>0&&!pv.wasKey){
+      // Move the last empty
+      const lastKey=emptyKeys[emptyKeys.length-1];
+      e[lastKey]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    }else{
+      // Create new empty
+      const id='e'+(ei++);
+      e[id]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    }
+    
+    if(!pv.keepAlive){
+      stopOsc(pv,0.2);
+      pv=null;
+    }
+  }else if(pv&&!pv.keepAlive){
+    stopOsc(pv,0.2);
+    pv=null;
+  }
+};
+
+// Right click - remove single assignment
+oncontextmenu=e=>{
+  e.preventDefault();
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    const dist=Math.sqrt((e.clientX-kx)**2+(e.clientY-ky)**2);
+    if(dist<25){
+      if(o[k]){
+        stopOsc(o[k],0.1);
+        delete o[k];
+      }
+      delete m[k];
+      delete p[k];
+      delete s[k];
+      delete sel[k];
+    }
+  });
+};
+
+// ===================
+// KEYBOARD CONTROLS
+// ===================
+
+onkeydown=e=>{
+  const k=e.key;
+  if(e.repeat)return;
+  
+  // Check if key is alphanumeric for node assignment
+  const isAlphaNum=/^[a-zA-Z0-9]$/.test(k);
+  
+  // Ctrl/Cmd + A - select all
+  if((e.ctrlKey||e.metaKey)&&k==='a'){
+    e.preventDefault();
+    Object.keys(p).forEach(key=>{
+      sel[key]=true;
+    });
+    return;
+  }
+  
+  // Help toggle
+  if(k==='?'||k==='/'){
+    e.preventDefault();
+    help=!help;
+    return;
+  }
+  
+  // Escape - stop all and clear selection
+  if(k==='Escape'){
+    e.preventDefault();
+    esc=1;
+    stopAll();
+    Object.keys(sel).forEach(k=>delete sel[k]);
+    return;
+  }
+  
+  // Space - sustain control
+  if(k===' '||k==='Space'){
+    e.preventDefault();
+    
+    // Quick lock if dragging
+    if(hk&&o[hk]&&!o[hk].assigned){
+      m[hk]=o[hk].f;
+      p[hk]={x:o[hk].mx||mx,y:o[hk].my||my};
+      o[hk].assigned=true;
+      s[hk]=true;
+      hk=null;
+      return;
+    }
+    
+    // Toggle selected
+    const selKeys=Object.keys(sel);
+    if(selKeys.length){
+      selKeys.forEach(key=>{
+        if(s[key]){
+          delete s[key];
+          if(o[key]){
+            stopOsc(o[key],0.1);
+            delete o[key];
+          }
+        }else{
+          s[key]=true;
+          if(!o[key]){
+            const osc=createOsc(m[key],p[key].x,p[key].y);
+            o[key]={...osc,assigned:true};
+          }
+        }
+      });
+      return;
+    }
+    
+    // Toggle at hover or pressed keys
+    let found=false;
+    Object.keys(p).forEach(key=>{
+      const dist=Math.sqrt((mx-p[key].x)**2+(my-p[key].y)**2);
+      if(dist<25){
+        found=true;
+        if(s[key]){
+          delete s[key];
+          if(o[key]){
+            stopOsc(o[key],0.1);
+            delete o[key];
+          }
+        }else{
+          s[key]=true;
+          if(!o[key]){
+            const osc=createOsc(m[key],p[key].x,p[key].y);
+            o[key]={...osc,assigned:true};
+          }
+        }
+      }
+    });
+    
+    if(!found){
+      pk.forEach(key=>{
+        if(m[key]){
+          s[key]=!s[key];
+          if(!s[key]&&o[key]&&!pk.has(key)){
+            stopOsc(o[key],0.1);
+            delete o[key];
+          }
+        }
+      });
+    }
+    return;
+  }
+  
+  // Backspace - delete
+  if(k==='Backspace'){
+    e.preventDefault();
+    
+    // Clear all with Esc
+    if(esc){
+      stopAll();
+      Object.keys(m).forEach(k=>delete m[k]);
+      Object.keys(p).forEach(k=>delete p[k]);
+      Object.keys(e).forEach(k=>delete e[k]);
+      Object.keys(s).forEach(k=>delete s[k]);
+      Object.keys(sel).forEach(k=>delete sel[k]);
+      return;
+    }
+    
+    // Delete selected
+    const selKeys=Object.keys(sel);
+    if(selKeys.length){
+      selKeys.forEach(key=>{
+        if(o[key]){
+          stopOsc(o[key],0.1);
+          delete o[key];
+        }
+        delete m[key];
+        delete p[key];
+        delete s[key];
+        delete sel[key];
+      });
+      return;
+    }
+    
+    // Delete pressed keys
+    pk.forEach(key=>{
+      if(m[key]){
+        if(o[key]){
+          stopOsc(o[key],0.1);
+          delete o[key];
+        }
+        delete m[key];
+        delete p[key];
+        delete s[key];
+        delete sel[key];
+      }
+    });
+    
+    // Delete empty positions
+    Object.keys(e).forEach(id=>delete e[id]);
+    return;
+  }
+  
+  // Only allow alphanumeric keys for node assignment
+  if(!isAlphaNum)return;
+  
+  pk.add(k);
+  
+  // Fill empty position
+  let filled=false;
+  Object.keys(e).forEach(id=>{
+    if(!filled){
+      const {x:ex,y:ey,f}=e[id];
+      const dist=Math.sqrt((mx-ex)**2+(my-ey)**2);
+      if(dist<25){
+        filled=true;
+        m[k]=f;
+        p[k]={x:ex,y:ey};
+        delete e[id];
+        
+        const osc=createOsc(f,ex,ey);
+        o[k]={...osc,assigned:true};
+      }
+    }
+  });
+  
+  if(filled)return;
+  
+  // Assign during preview
+  if(md&&pv){
+    m[k]=F(mx,my);
+    p[k]={x:mx,y:my};
+    pv.assigned=true;
+    pv.keepAlive=true;
+    return;
+  }
+  
+  // Play assigned
+  if(m[k]){
+    // Add to selection for potential dragging
+    sel[k]=true;
+    
+    if(!o[k]){
+      const osc=createOsc(m[k],p[k].x,p[k].y);
+      if(!s[k])osc.v.gain.exponentialRampToValueAtTime(0.2,a.currentTime+0.1);
+      o[k]={...osc,assigned:true};
+    }
+  }else{
+    // New unassigned
+    if(!o[k]){
+      hk=k;
+      const f=F(mx,my);
+      const osc=createOsc(f,mx,my);
+      o[k]={...osc,assigned:false,mx,my};
+    }
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  
+  if(k==='Escape'){esc=0;return;}
+  if(k===' '||k==='Space'||k==='Backspace'||k==='?'||k==='/')return;
+  
+  // Remove pressed key from selection on keyup
+  if(sel[k]) delete sel[k];
+
+  pk.delete(k);
+  
+  // Handle preview transfer
+  if(pv&&pv.keepAlive&&pv.assigned){
+    const osc=createOsc(pv.f,pv.mx,pv.my);
+    o[k]={...osc,assigned:true};
+    stopOsc(pv,0.1);
+    pv=null;
+  }
+  
+  if(o[k]){
+    if(!o[k].assigned){
+      m[k]=o[k].f;
+      p[k]={x:o[k].mx||mx,y:o[k].my||my};
+    }
+    
+    if(!s[k]){
+      stopOsc(o[k],0.3);
+      delete o[k];
+    }
+    
+    if(hk===k)hk=null;
+  }
+};
+
+// Help icon click
+document.getElementById('h').onclick=()=>{
+  help=!help;
+};
+
+// ===================
+// RENDER LOOP
+// ===================
+
+function r(){
+  requestAnimationFrame(r);
+  
+  A.getByteTimeDomainData(d);
+  
+  // Fade
+  x.fillStyle='rgba(0,0,0,0.08)';
+  x.fillRect(0,0,W,H);
+  
+  // Grid
+  x.strokeStyle='rgba(0,255,0,0.05)';
+  x.lineWidth=1;
+  for(let i=1;i<10;i++){
+    x.beginPath();
+    x.moveTo(i*W/10,0);
+    x.lineTo(i*W/10,H);
+    x.stroke();
+  }
+  for(let i=1;i<8;i++){
+    x.beginPath();
+    x.moveTo(0,i*H/8);
+    x.lineTo(W,i*H/8);
+    x.stroke();
+  }
+  
+  // Empty positions (hide during help)
+  if(!help){
+    Object.keys(e).forEach(id=>{
+      const {x:ex,y:ey,f}=e[id];
+      
+      x.strokeStyle='#666';
+      x.shadowBlur=10;
+      x.shadowColor='#666';
+      x.lineWidth=1;
+      x.setLineDash([5,5]);
+      
+      x.beginPath();
+      x.arc(ex,ey,15,0,Math.PI*2);
+      x.stroke();
+      x.setLineDash([]);
+      
+      x.fillStyle='#666';
+      x.font='9px monospace';
+      x.textAlign='left';
+      x.fillText(~~f+'Hz',ex+20,ey+3);
+    });
+  }
+  
+  // Assigned positions (hide during help)
+  if(!help){
+    Object.keys(p).forEach(k=>{
+      const {x:kx,y:ky}=p[k];
+      const active=o[k]&&o[k].assigned;
+      const selected=sel[k];
+      
+      // Determine color
+      let color='#0f0'; // Default green
+      if(selected&&active)color='#0ff'; // Cyan for selected+playing
+      else if(selected)color='#08f'; // Blue for selected
+      else if(active)color='#0f0'; // Green for playing
+      
+      x.strokeStyle=color;
+      x.fillStyle=color;
+      x.shadowBlur=selected?30:active?25:15;
+      x.shadowColor=color;
+      x.lineWidth=selected?3:2;
+      
+      x.beginPath();
+      x.arc(kx,ky,active?18:15,0,Math.PI*2);
+      x.stroke();
+      
+      // Pulsing for all playing nodes
+      if(active){
+        x.globalAlpha=0.3+Math.sin(t*4)*0.2;
+        x.beginPath();
+        x.arc(kx,ky,22+Math.sin(t*4)*3,0,Math.PI*2);
+        x.stroke();
+        x.globalAlpha=1;
+      }
+      
+      x.beginPath();
+      x.arc(kx,ky,active?4:3,0,Math.PI*2);
+      x.fill();
+      
+      x.fillStyle=selected?'#fff':'#fff';
+      x.font='bold 14px monospace';
+      x.textAlign='center';
+      x.textBaseline='middle';
+      x.fillText(k.toUpperCase(),kx,ky);
+      
+      x.fillStyle=color;
+      x.font='9px monospace';
+      x.textAlign='left';
+      x.fillText(~~m[k]+'Hz',kx+25,ky+3);
+    });
+  }
+  
+  // Cursor (always visible)
+  const cf=F(mx,my);
+  if(drag){
+    // Show dragging cursor (blue)
+    x.strokeStyle='#08f';
+    x.shadowColor='#08f';
+    x.shadowBlur=20;
+    x.lineWidth=2;
+    x.beginPath();
+    x.arc(mx,my,10,0,Math.PI*2);
+    x.stroke();
+    x.strokeStyle='#08f';
+    x.lineWidth=1;
+    x.beginPath();
+    x.moveTo(mx-5,my);
+    x.lineTo(mx+5,my);
+    x.moveTo(mx,my-5);
+    x.lineTo(mx,my+5);
+    x.stroke();
+  }else if(hk||md){
+    x.strokeStyle=md?'#0ff':'#ff0';
+    x.shadowColor=md?'#0ff':'#ff0';
+    x.shadowBlur=20;
+    x.lineWidth=2;
+    x.beginPath();
+    x.arc(mx,my,15,0,Math.PI*2);
+    x.stroke();
+    x.beginPath();
+    x.arc(mx,my,8,0,Math.PI*2);
+    x.stroke();
+  }else{
+    x.strokeStyle='#0f0';
+    x.shadowBlur=10;
+    x.shadowColor='#0f0';
+    x.lineWidth=1;
+    x.beginPath();
+    x.moveTo(mx-15,my);
+    x.lineTo(mx+15,my);
+    x.moveTo(mx,my-15);
+    x.lineTo(mx,my+15);
+    x.stroke();
+  }
+  
+  x.fillStyle='#0f0';
+  x.font='10px monospace';
+  x.textAlign='left';
+  x.fillText(~~cf+'Hz',mx+20,my-20);
+  
+  // Waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=15;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Sweep
+  t+=0.015;
+  const sx=t%1*W;
+  x.strokeStyle='#0f0';
+  x.shadowBlur=30;
+  x.shadowColor='#0f0';
+  x.globalAlpha=0.5;
+  x.lineWidth=1;
+  x.beginPath();
+  x.moveTo(sx,0);
+  x.lineTo(sx,H);
+  x.stroke();
+  x.globalAlpha=1;
+  
+  // Status
+  let y=H-20;
+  
+  if(hk){
+    x.fillStyle='#ff0';
+    x.shadowColor='#ff0';
+    x.shadowBlur=15;
+    x.font='16px monospace';
+    x.fillText('▶ '+hk.toUpperCase()+' : '+~~o[hk].f+'Hz',10,y);
+    y-=20;
+  }
+  
+  if(md&&pv){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.font='14px monospace';
+    x.fillText('◉ Preview: '+~~cf+'Hz',10,y);
+    y-=20;
+  }
+  
+  const selKeys=Object.keys(sel);
+  if(selKeys.length){
+    x.fillStyle='#fff';
+    x.shadowColor='#fff';
+    x.font='12px monospace';
+    x.fillText('◆ Selected: '+selKeys.map(k=>k.toUpperCase()).join(' '),10,y);
+    y-=20;
+  }
+  
+  const sus=Object.keys(s);
+  if(sus.length){
+    x.fillStyle='#f0f';
+    x.shadowColor='#f0f';
+    x.font='12px monospace';
+    x.fillText('∞ '+sus.map(k=>k.toUpperCase()).join(' '),10,y);
+    y-=20;
+  }
+  
+  const playing=Object.keys(o).filter(k=>o[k].assigned&&!s[k]);
+  if(playing.length){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.font='12px monospace';
+    x.fillText('♪ '+playing.map(k=>k.toUpperCase()).join(' '),10,y);
+    y-=20;
+  }
+  
+  const ak=Object.keys(m);
+  if(ak.length){
+    x.fillStyle='#0f0';
+    x.shadowColor='#0f0';
+    x.font='10px monospace';
+    x.fillText('Keys: '+ak.map(k=>k.toUpperCase()).join(' '),10,y);
+    y-=20;
+  }
+  
+  // Draw help text on canvas
+  if(help){
+    x.save();
+    
+    x.fillStyle='#0f0';
+    x.strokeStyle='#0f0';
+    x.shadowBlur=15;
+    x.shadowColor='#0f0';
+    x.font='14px monospace';
+    x.textAlign='center';
+    
+    const hx=W/2;
+    const hy=H/2-80;
+    const lines=[
+      'HELP',
+      '',
+      'a-z/0-9 + MOVE = ASSIGN NODE',
+      'CLICK NODE = SELECT / DRAG',
+      'SPACE = SUSTAIN TOGGLE',
+      'BACKSPACE = DELETE',
+      'ESC = STOP ALL + CLEAR',
+      'RIGHT CLICK = REMOVE ONE',
+      'CTRL/CMD + A = SELECT ALL',
+      'SHIFT + F = FULLSCREEN',
+      '',
+      '→ DOCUMENTATION: help.html'
+    ];
+    
+    // Text only - no background
+    lines.forEach((line,i)=>{
+      x.shadowBlur=15;
+      x.shadowColor='#0f0';
+      
+      if(line==='HELP'){
+        x.fillStyle='#0f0';
+        x.font='bold 18px monospace';
+        x.fillText(line,hx,hy+i*25);
+        x.font='14px monospace';
+      }else if(line.includes('DOCUMENTATION')){
+        // Check if hovering over documentation link
+        const lineY=hy+i*25;
+        const tw=x.measureText(line).width;
+        if(mx>hx-tw/2&&mx<hx+tw/2&&my>lineY-10&&my<lineY+10){
+          x.fillStyle='#fff';
+          x.shadowColor='#fff';
+        }else{
+          x.fillStyle='#0ff';
+          x.shadowColor='#0ff';
+        }
+        x.fillText(line,hx,hy+i*25);
+      }else{
+        x.fillStyle='#0f0';
+        x.fillText(line,hx,hy+i*25);
+      }
+    });
+    
+    x.restore();
+  }
+}
+r();
+
+// Fullscreen (Shift+F only, to allow 'f' as a node)
+document.addEventListener('keydown',e=>{
+  if(e.key==='F'&&e.shiftKey&&!e.repeat)c.requestFullscreen();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+*{margin:0;padding:0}
+body{background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block;width:100vw;height:100vh}
+#i{position:fixed;top:10px;left:10px;color:#0f0;font:10px monospace;text-shadow:0 0 5px #0f0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="i">Click to preview • Click+Key to lock • Move mouse for pitch</div>
+<script>
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d'),
+W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={},  // active oscillators
+      m={},  // key->frequency mapping
+      p={},  // key->position mapping
+      d=new Uint8Array(A.frequencyBinCount);
+
+let mx=W/2,my=H/2,md=0,t=0,pv=null;
+
+// Mouse tracking
+onmousemove=e=>{mx=e.clientX;my=e.clientY};
+
+// Calculate frequency from position
+const F=(x,y)=>Math.pow(2,(x/W*4))*55*Math.pow(2,1-y/H*3);
+
+// Mouse preview
+onmousedown=e=>{
+  md=1;
+  mx=e.clientX;
+  my=e.clientY;
+  
+  // Preview sound
+  if(pv){
+    pv.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+    setTimeout(()=>{pv.s.stop();pv.s.disconnect()},100);
+  }
+  
+  const s=a.createOscillator(),
+        v=a.createGain(),
+        f=F(mx,my);
+  
+  s.frequency.value=f;
+  s.type=['sine','triangle','square','sawtooth'][~~(f/100)%4];
+  v.gain.setValueAtTime(0,a.currentTime);
+  v.gain.linearRampToValueAtTime(0.3,a.currentTime+0.01);
+  v.gain.exponentialRampToValueAtTime(0.1,a.currentTime+0.5);
+  
+  s.connect(v);
+  v.connect(g);
+  s.start();
+  
+  pv={s,v};
+};
+
+onmouseup=e=>{
+  md=0;
+  if(pv){
+    pv.v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2);
+    setTimeout(()=>{pv.s.stop();pv.s.disconnect()},200);
+    pv=null;
+  }
+};
+
+// Keyboard handlers
+onkeydown=e=>{
+  const k=e.key;
+  
+  // Lock position if mouse down
+  if(md){
+    m[k]=F(mx,my);
+    p[k]={x:mx,y:my};
+  }
+  
+  const f=m[k]||F(mx,my);
+  
+  if(!o[k]){
+    const s=a.createOscillator(),
+          v=a.createGain(),
+          n=a.createStereoPanner();
+    
+    s.frequency.value=f;
+    s.type=['sine','square','sawtooth','triangle'][~~(f/100)%4];
+    n.pan.value=((p[k]?p[k].x:mx)/W-0.5)*2;
+    
+    v.gain.setValueAtTime(0,a.currentTime);
+    v.gain.linearRampToValueAtTime(0.4,a.currentTime+0.01);
+    v.gain.exponentialRampToValueAtTime(0.2,a.currentTime+0.1);
+    
+    s.connect(v);
+    v.connect(n);
+    n.connect(g);
+    s.start();
+    
+    o[k]={s,v,f};
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  if(o[k]){
+    const {s,v}=o[k];
+    v.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2);
+    setTimeout(()=>{
+      s.stop();
+      s.disconnect();
+      delete o[k];
+    },200);
+  }
+};
+
+// Render loop
+function r(){
+  requestAnimationFrame(r);
+  
+  // Get audio data
+  A.getByteTimeDomainData(d);
+  
+  // Fade
+  x.fillStyle='rgba(0,0,0,0.05)';
+  x.fillRect(0,0,W,H);
+  
+  // Draw locked key positions
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    x.save();
+    x.translate(kx,ky);
+    
+    // Glow effect
+    x.shadowBlur=20;
+    x.shadowColor='#f0f';
+    x.fillStyle='#f0f';
+    x.globalAlpha=0.3;
+    x.beginPath();
+    x.arc(0,0,20,0,Math.PI*2);
+    x.fill();
+    
+    // Key letter
+    x.globalAlpha=1;
+    x.fillStyle='#fff';
+    x.font='bold 16px monospace';
+    x.textAlign='center';
+    x.textBaseline='middle';
+    x.fillText(k.toUpperCase(),0,0);
+    
+    // Frequency
+    x.font='10px monospace';
+    x.fillStyle='#f0f';
+    x.fillText(~~m[k]+'Hz',0,15);
+    
+    x.restore();
+  });
+  
+  // Mouse cursor
+  const cf=F(mx,my);
+  x.fillStyle=md?'#f00':'#ff0';
+  x.shadowBlur=20;
+  x.shadowColor=md?'#f00':'#ff0';
+  x.beginPath();
+  x.arc(mx,my,md?8:5,0,Math.PI*2);
+  x.fill();
+  x.fillStyle='#fff';
+  x.font='12px monospace';
+  x.fillText(~~cf+'Hz',mx+10,my-10);
+  
+  // Draw waveform
+  x.strokeStyle='#0f0';
+  x.lineWidth=2;
+  x.shadowBlur=15;
+  x.shadowColor='#0f0';
+  x.beginPath();
+  
+  const l=d.length;
+  for(let i=0;i<l;i++){
+    const v=d[i]/128,
+          y=v*H/2,
+          X=i/l*W;
+    i?x.lineTo(X,y):x.moveTo(X,y);
+  }
+  x.stroke();
+  
+  // Spectrum visualization
+  t+=0.02;
+  for(let i=0;i<W;i+=20){
+    const idx=~~(i/W*l),
+          v=d[idx]/255,
+          h=v*H*0.5;
+    x.strokeStyle=`hsl(${(t*50+i/5)%360},100%,50%)`;
+    x.shadowColor=x.strokeStyle;
+    x.shadowBlur=10;
+    x.lineWidth=10;
+    x.globalAlpha=0.7;
+    x.beginPath();
+    x.moveTo(i,H);
+    x.lineTo(i,H-h);
+    x.stroke();
+  }
+  x.globalAlpha=1;
+  
+  // Active notes in corner
+  const k=Object.keys(o);
+  if(k.length){
+    x.fillStyle='#0ff';
+    x.shadowColor='#0ff';
+    x.shadowBlur=10;
+    x.font='14px monospace';
+    x.fillText('♪ '+k.join(' '),10,H-20);
+  }
+}
+r();
+
+// Resume audio
+onclick=()=>a.state=='suspended'&&a.resume();
+
+// Fullscreen on F key
+onkeypress=e=>e.key=='F'&&c.requestFullscreen();
+</script>
+</body>
+</html>
