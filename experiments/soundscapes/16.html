@@ -43,20 +43,17 @@ const THEME = {
         msgInactive: '#f00',
         msgActive: '#0f0',
         emptyNode: '#666',
-        grid: 'rgba(0,255,0,0.1)',
-        gridRoot: 'rgba(0,255,0,0.15)',
+        grid: 'rgba(0,255,0,0.05)',
         textKey: '#fff',
         editMode: '#f00',
         editModeText: '#0ff',
-        previewFill: 'rgba(0, 204, 255, 0.15)',
-        backgroundFade: 'rgba(0,0,0,0.095)',
+        previewFill: 'rgba(0, 204, 255, 0.05)',
+        backgroundFade: 'rgba(0,0,0,0.08)',
         helpLinkHover: '#fff',
         helpText: '#0f0',
         helpTextHighlight: '#0cf',
         scaleNote: 'rgba(0,255,255,0.4)',
         scaleGrid: 'rgba(0,255,255,0.15)',
-        tonnetzHighlight: 'rgba(0, 255, 255, 0.05)',
-        tonnetzRootHighlight: 'rgba(0, 255, 255, 0.1)',
     },
     fonts: {
         helpButton: '20px monospace',
@@ -81,8 +78,7 @@ const THEME = {
         blurNodeSelected: 15,
         blurConnectionMsg: 30,
         blurHelp: 0.25,
-        blurScale: 10,
-        tonnetzGlow: 5,
+        blurScale: 10
     }
 };
 
@@ -96,13 +92,6 @@ x=c.getContext('2d');
 
 let W=c.width=innerWidth,
 H=c.height=innerHeight;
-
-// OPTIMIZATION: Offscreen canvas for static grid rendering
-const gridCanvas = document.createElement('canvas');
-const gridX = gridCanvas.getContext('2d');
-gridCanvas.width = W;
-gridCanvas.height = H;
-let gridNeedsRedraw = true; // Flag to trigger redraw
 
 // Apply initial styles from THEME object
 document.body.style.backgroundColor = THEME.colors.background;
@@ -164,46 +153,48 @@ const F_LOGARITHMIC = (x, y) => Math.pow(2, (x / W * 4)) * 55 * Math.pow(2, 1 - 
 
 const getTonnetzNoteAndPos = (px, py) => {
     const hexSize = Math.min(W / 20, H / 15);
-    const center_x = W / 2;
-    const center_y = H / 2;
-
-    // Convert pixel to fractional axial coordinates (pointy top)
-    const q_float = (Math.sqrt(3)/3 * (px - center_x) - 1/3 * (py - center_y)) / hexSize;
-    const r_float = (                        2/3 * (py - center_y)) / hexSize;
-    
-    // Hex rounding
-    let q = Math.round(q_float);
-    let r = Math.round(r_float);
-    let s = Math.round(-q_float - r_float);
-    const q_diff = Math.abs(q - q_float);
-    const r_diff = Math.abs(r - r_float);
-    const s_diff = Math.abs(s - (-q_float - r_float));
-    
-    if (q_diff > r_diff && q_diff > s_diff) {
-        q = -r - s;
-    } else if (r_diff > s_diff) {
-        r = -q - s;
-    } else {
-        s = -q - r;
-    }
-
-    // Calculate MIDI note from axial coordinates
-    const rootNote = 60; // C4
-    const majorThirdStep = 4; // semitones
-    const perfectFifthStep = 7; // semitones
-    // q-axis maps to M3, r-axis maps to P5
-    const midiNote = rootNote + q * majorThirdStep + r * perfectFifthStep;
-
-    // Calculate the screen center of the determined hexagon
-    const hex_center_x = center_x + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-    const hex_center_y = center_y + hexSize * (                  3/2 * r);
-
-    return { midi: Math.round(midiNote), x: hex_center_x, y: hex_center_y };
+    const hexWidth = Math.sqrt(3) * hexSize;
+    const hexHeight = 2 * hexSize * 3/4;
+    const q_float = (px - W/2) / hexWidth;
+    const r_float = (py - H/2) / hexHeight - ( (Math.round((py - H/2)/hexHeight)) % 2 === 0 ? 0 : 0.5);
+    const q = Math.round(q_float);
+    const r = Math.round(r_float);
+    const rootNote = 60;
+    const fifthStep = 7, majorThirdStep = 4;
+    let midiNote = rootNote + r * fifthStep;
+    if (r % 2 !== 0) midiNote += (q - 0.5) * majorThirdStep;
+    else midiNote += q * majorThirdStep;
+    const centerX = q * hexWidth + (r % 2) * (hexWidth / 2) + W/2;
+    const centerY = r * hexHeight + H/2;
+    return { midi: Math.round(midiNote), x: centerX, y: centerY };
 };
 
 const F_TONNETZ = (px, py) => {
-    const { midi } = getTonnetzNoteAndPos(px, py);
-    return 440 * Math.pow(2, (midi - 69) / 12);
+    const hexSize = Math.min(W / 20, H / 15);
+    const hexWidth = Math.sqrt(3) * hexSize;
+    const hexHeight = 2 * hexSize * 3/4;
+    const q_approx = (px - W/2) / hexWidth, r_approx = (py - H/2) / hexHeight;
+    let centers = [];
+    for(let r_off = -1; r_off <= 1; r_off++) {
+        for(let q_off = -1; q_off <= 1; q_off++) {
+            const q = Math.round(q_approx + q_off), r = Math.round(r_approx + r_off);
+            centers.push({x: q * hexWidth + (r % 2) * (hexWidth / 2) + W/2, y: r * hexHeight + H/2});
+        }
+    }
+    centers.sort((a,b) => (Math.hypot(a.x-px, a.y-py) - Math.hypot(b.x-px, b.y-py)));
+    const nearest3 = centers.slice(0, 3);
+    let totalWeight = 0, weightedFreqSum = 0;
+    nearest3.forEach(center => {
+        let dist = Math.hypot(center.x - px, center.y - py);
+        if (dist < 0.001) dist = 0.001;
+        const weight = 1 / Math.pow(dist, 2);
+        const midi = getTonnetzNoteAndPos(center.x, center.y).midi;
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        totalWeight += weight;
+        weightedFreqSum += freq * weight;
+    });
+    if (totalWeight === 0) return F_LOGARITHMIC(px, py);
+    return weightedFreqSum / totalWeight;
 };
 
 const F_CIRCULAR = (x, y) => {
@@ -248,24 +239,16 @@ const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
 const numberToScale = (number = 4095) => {
     const binaryString = (number >>> 0).toString(2).padStart(12, '0');
-    const scale = [];
-    for (let i = 0; i < 12; i++) {
-        if (binaryString[11 - i] === '1') {
-            scale.push(i);
-        }
-    }
-    return scale;
+    return binaryString.split('').map((bit, i) => (bit === '1' ? 11 - i : -1)).filter(n => n !== -1).reverse();
 };
 
 const freqToNote = (freq) => {
-    if (freq <= 0) return { name: '?', octave: 0, noteIndex: 0, midi: 0 };
     const A4 = 440;
     const semitones = 12 * Math.log2(freq / A4);
     const noteNum = Math.round(semitones) + 69;
     const octave = Math.floor(noteNum / 12) - 1;
-    const noteIndex = ((noteNum % 12) + 12) % 12; // Ensure positive noteIndex
-    const displayOctave = Math.max(-1, Math.min(9, octave));
-    return { name: NOTE_NAMES[noteIndex], octave: displayOctave, noteIndex, midi: noteNum };
+    const noteIndex = noteNum % 12;
+    return { name: NOTE_NAMES[noteIndex], octave, noteIndex, midi: noteNum };
 };
 
 const isInScale = (freq) => {
@@ -276,199 +259,86 @@ const isInScale = (freq) => {
 };
 
 // ===================
-// GRID DRAWING (Now draws to the provided context `ctx`)
+// GRID DRAWING
 // ===================
 
-function drawDefaultScaleGrid(ctx) {
-    const scalePattern = numberToScale(SCALE_PRESETS[SCALE_NAMES[currentScaleIndex]]);
-
-    const verticalLines = [];
-    
-    // Draw vertical lines
-    for (let noteIndex of scalePattern) {
-        for (let octave = 0; octave < 6; octave++) {
-            const midiNote = 12 * (octave + 1) + currentScaleRoot + noteIndex;
-            const freq = 261.63 * Math.pow(2, (midiNote - 69) / 12);
-            const baseFreq = freq / Math.pow(2, 1 - 0.5 * 3);
-            const x_term = Math.log2(baseFreq / 55);
-            const xPos = (x_term / 4) * W;
-            if (xPos > 0 && xPos < W) {
-                verticalLines.push({x: xPos, isRoot: noteIndex === 0});
-                ctx.strokeStyle = THEME.colors.grid;
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                ctx.moveTo(xPos, 0);
-                ctx.lineTo(xPos, H);
-                ctx.stroke();
-            }
-        }
-    }
-
-    // Draw horizontal lines and intersection dots
-    for (let octave = -1; octave < 8; octave++) {
-        for (let note of scalePattern) {
-            const midiNote = 12 * (octave + 2) + note;
-            const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-            const yPos = H * (1 - Math.log2(freq / 220)) / 3;
-            if (yPos >= 0 && yPos <= H) {
-                ctx.strokeStyle = THEME.colors.grid;
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                ctx.moveTo(0, yPos);
-                ctx.lineTo(W, yPos);
-                ctx.stroke();
-                for (let vLine of verticalLines) {
-                    if (note === 0 && vLine.isRoot) {
-                        ctx.fillStyle = THEME.colors.gridRoot;
-                        ctx.beginPath();
-                        ctx.arc(vLine.x, yPos, 1.5, 0, 2 * Math.PI);
-                        ctx.fill();
-                    } else {
-                        ctx.fillStyle = THEME.colors.grid;
-                        ctx.beginPath();
-                        ctx.arc(vLine.x, yPos, 0.7, 0, 2 * Math.PI);
-                        ctx.fill();
-                    }
-                }
-            }
-        }
-    }
+const drawLogarithmicGrid = () => {
+    x.strokeStyle=THEME.colors.grid; x.lineWidth=1; x.shadowBlur=0;
+    for(let i=1;i<10;i++){ x.beginPath(); x.moveTo(i*W/10,0); x.lineTo(i*W/10,H); x.stroke(); }
+    for(let i=1;i<8;i++){ x.beginPath(); x.moveTo(0,i*H/8); x.lineTo(W,i*H/8); x.stroke(); }
 };
 
-const drawHexagon = (ctx, px, py, size) => {
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) ctx.lineTo(px + size * Math.cos(Math.PI / 3 * i + Math.PI / 6), py + size * Math.sin(Math.PI / 3 * i + Math.PI / 6));
-    ctx.closePath();
+const drawHexagon = (px, py, size) => {
+    x.beginPath();
+    for (let i = 0; i < 6; i++) x.lineTo(px + size * Math.cos(Math.PI / 3 * i + Math.PI / 6), py + size * Math.sin(Math.PI / 3 * i + Math.PI / 6));
+    x.closePath();
 };
 
-function drawTonnetzGrid(ctx) {
+const drawTonnetzGrid = () => {
     const hexSize = Math.min(W / 20, H / 15);
-    ctx.strokeStyle = THEME.colors.grid; ctx.lineWidth = 0.5; ctx.shadowBlur = 0;
-    const q_range = Math.ceil(W / (Math.sqrt(3) * hexSize)) + 2;
-    const r_range = Math.ceil(H / (1.5 * hexSize)) + 2;
-
-    for (let r = -Math.ceil(r_range / 1.5); r < Math.ceil(r_range / 1.5); r++) {
-        for (let q = -Math.ceil(q_range / 1.5); q < Math.ceil(q_range / 1.5); q++) {
-            const hex_center_x = W/2 + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-            const hex_center_y = H/2 + hexSize * (3/2 * r);
-            if (hex_center_x > -hexSize && hex_center_x < W + hexSize && hex_center_y > -hexSize && hex_center_y < H + hexSize) {
-                drawHexagon(ctx, hex_center_x, hex_center_y, hexSize); 
-                ctx.stroke();
-            }
+    const hexWidth = Math.sqrt(3) * hexSize, hexHeight = 2 * hexSize * 3/4;
+    x.strokeStyle = THEME.colors.grid; x.lineWidth = 0.5; x.shadowBlur = 0;
+    const cols = Math.ceil(W / hexWidth) + 2, rows = Math.ceil(H / hexHeight) + 2;
+    for (let row = -1; row < rows; row++) {
+        for (let col = -1; col < cols; col++) {
+            const px = col * hexWidth + (row % 2) * (hexWidth / 2) + W/2 - hexWidth/2;
+            const py = row * hexHeight + H/2 - hexHeight/2;
+            drawHexagon(px, py, hexSize); x.stroke();
         }
     }
 };
 
-function drawCircularGrid(ctx) {
-    const centerX = W / 2, centerY = H / 2;
-    const maxRadius = Math.min(centerX, centerY);
-    ctx.strokeStyle = THEME.colors.grid; ctx.lineWidth = 0.5;
-    for (let i = 1; i <= 6; i++) {
-        const radius = (i / 6) * maxRadius;
-        ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); ctx.stroke();
-    }
-    for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * 2 * Math.PI - Math.PI;
-        ctx.beginPath(); ctx.moveTo(centerX, centerY);
-        ctx.lineTo(centerX + Math.cos(angle) * maxRadius, centerY + Math.sin(angle) * maxRadius);
-        ctx.stroke();
-    }
+const drawCircularGrid = () => {
+    const centerX = W/2, centerY = H/2, maxRadius = Math.min(centerX, centerY) * 0.95;
+    x.strokeStyle = THEME.colors.grid; x.lineWidth = 0.5; x.shadowBlur = 0;
+    for (let i = 0; i < 12; i++) { const angle = (i / 12) * 2 * Math.PI; x.beginPath(); x.moveTo(centerX, centerY); x.lineTo(centerX + Math.cos(angle) * maxRadius, centerY + Math.sin(angle) * maxRadius); x.stroke(); }
+    for (let i = 1; i <= 6; i++) { const radius = (i / 6) * maxRadius; x.beginPath(); x.arc(centerX, centerY, radius, 0, 2 * Math.PI); x.stroke(); }
 };
 
-function drawSpiralGrid(ctx) {
-    const centerX = W / 2, centerY = H / 2;
-    const maxRadius = Math.min(centerX, centerY) * 1.5;
-    ctx.strokeStyle = THEME.colors.grid; ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    for (let angle = 0; angle < Math.PI * 10; angle += 0.1) {
-        const radius = (angle / (Math.PI * 10)) * maxRadius;
-        const px = centerX + Math.cos(angle) * radius;
-        const py = centerY + Math.sin(angle) * radius;
-        if (angle === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+const drawSpiralGrid = () => {
+    const centerX = W/2, centerY = H/2;
+    x.strokeStyle = THEME.colors.grid; x.lineWidth = 0.5; x.shadowBlur = 0;
+    x.beginPath();
+    const turns = 5, maxRadius = Math.min(centerX, centerY) * 1.5;
+    for (let i = 0; i < turns * 360; i++) {
+        const angle = i * Math.PI / 180, radius = maxRadius * (angle / (turns * 2 * Math.PI));
+        const px = centerX + radius * Math.cos(angle), py = centerY + radius * Math.sin(angle);
+        i === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
     }
-    ctx.stroke();
-    for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * 2 * Math.PI;
-        ctx.beginPath(); ctx.moveTo(centerX, centerY);
-        ctx.lineTo(centerX + Math.cos(angle) * maxRadius, centerY + Math.sin(angle) * maxRadius);
-        ctx.stroke();
-    }
+    x.stroke();
 };
 
-const GRID_DRAWERS = [drawDefaultScaleGrid, drawTonnetzGrid, drawCircularGrid, drawSpiralGrid, drawSpiralGrid];
+const GRID_DRAWERS = [drawLogarithmicGrid, drawTonnetzGrid, drawCircularGrid, drawSpiralGrid, drawSpiralGrid];
+const drawSpaceGrid = () => GRID_DRAWERS[spaceModeIndex]();
 
-function drawScaleOverlay(ctx) {
-    const currentSpaceMode = SPACE_MODES[spaceModeIndex];
+const drawScaleOverlay = () => {
+    if (EDIT_MODES[editModeIndex] !== 'SCALE') return;
     const scalePattern = numberToScale(SCALE_PRESETS[SCALE_NAMES[currentScaleIndex]]);
+    const currentSpaceMode = SPACE_MODES[spaceModeIndex];
 
-    if (currentSpaceMode === 'CIRCULAR' || currentSpaceMode === 'UPSPIRAL' || currentSpaceMode === 'DOWNSPIRAL') {
-        const centerX = W / 2, centerY = H / 2; const maxRadius = Math.min(centerX, centerY);
-        for (let noteIndex of scalePattern) {
-            const actualNote = (noteIndex + currentScaleRoot) % 12;
-            const angle = (actualNote / 12) * 2 * Math.PI - Math.PI;
-            ctx.strokeStyle = THEME.colors.scaleNote; ctx.lineWidth = noteIndex === 0 ? 2 : 1.5;
-            ctx.shadowBlur = THEME.shadows.blurScale; ctx.shadowColor = ctx.strokeStyle; ctx.globalAlpha = 0.4;
-            ctx.beginPath(); ctx.moveTo(centerX, centerY);
-            ctx.lineTo(centerX + Math.cos(angle) * maxRadius * 1.5, centerY + Math.sin(angle) * maxRadius * 1.5);
-            ctx.stroke();
-            ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-        }
-    } else if (currentSpaceMode === 'TONNETZ') {
-        const hexSize = Math.min(W / 20, H / 15);
-        const q_range = Math.ceil(W / (Math.sqrt(3) * hexSize)) + 2;
-        const r_range = Math.ceil(H / (1.5 * hexSize)) + 2;
-
-        for (let r = -Math.ceil(r_range / 1.5); r < Math.ceil(r_range / 1.5); r++) {
-            for (let q = -Math.ceil(q_range / 1.5); q < Math.ceil(q_range / 1.5); q++) {
-                const midiNote = 60 + q * 4 + r * 7;
-                const note = freqToNote(440 * Math.pow(2, (midiNote - 69) / 12));
+    if (currentSpaceMode === 'TONNETZ') {
+        const hexSize = Math.min(W / 20, H / 15), hexWidth = Math.sqrt(3) * hexSize, hexHeight = 2 * hexSize * 3/4;
+        const cols = Math.ceil(W / hexWidth) + 2, rows = Math.ceil(H / hexHeight) + 2;
+        for (let row = -1; row < rows; row++) {
+            for (let col = -1; col < cols; col++) {
+                const px = col * hexWidth + (row % 2) * (hexWidth / 2) + W/2 - hexWidth/2;
+                const py = row * hexHeight + H/2 - hexHeight/2;
+                const note = freqToNote(F_TONNETZ(px, py));
                 const relativeNote = (note.noteIndex - currentScaleRoot + 12) % 12;
-                
                 if (scalePattern.includes(relativeNote)) {
-                    const px = W/2 + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-                    const py = H/2 + hexSize * (3/2 * r);
-
-                    if (px > -hexSize && px < W + hexSize && py > -hexSize && py < H + hexSize) {
-                        ctx.fillStyle = relativeNote === 0 ? THEME.colors.tonnetzRootHighlight : THEME.colors.tonnetzHighlight;
-                        ctx.shadowBlur = THEME.shadows.tonnetzGlow;
-                        ctx.shadowColor = THEME.colors.selection;
-                        drawHexagon(ctx, px, py, hexSize); 
-                        ctx.fill();
-
-                        // Add note name text
-                        ctx.shadowBlur = 0; // Turn off shadow for text
-                        ctx.fillStyle = THEME.colors.scaleNote; // Use a visible color for the text
-                        ctx.font = THEME.fonts.hexNote;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(`${note.name}${note.octave}`, px, py);
-                        
-                        ctx.shadowBlur = 0; // Reset shadow
-                    }
+                    x.fillStyle = THEME.colors.scaleNote;
+                    x.globalAlpha = (note.noteIndex === currentScaleRoot) ? 0.6 : 0.4;
+                    drawHexagon(px, py, hexSize); x.fill();
+                    x.globalAlpha = 1;
+                    x.fillStyle = THEME.colors.textKey;
+                    x.font = THEME.fonts.hexNote;
+                    x.textAlign = 'center'; x.textBaseline = 'middle';
+                    x.fillText(`${note.name}${note.octave}`, px, py);
                 }
             }
         }
     }
 };
-
-// OPTIMIZATION: This function redraws the static grid/scale to the offscreen canvas.
-function redrawCachedGrid() {
-    if (!gridNeedsRedraw) return;
-    
-    gridX.clearRect(0, 0, W, H);
-    
-    // Draw the base grid for the current space mode
-    GRID_DRAWERS[spaceModeIndex](gridX);
-    
-    // If in scale mode, draw the scale overlay on top
-    if (EDIT_MODES[editModeIndex] === 'SCALE') {
-        drawScaleOverlay(gridX);
-    } 
-    
-    gridNeedsRedraw = false;
-}
-
 
 let mx=W/2,my=H/2,t=0,hk=null,md=0,pv=null,pk=new Set(),esc=0,ei=0,help=0,
     drag=null,dragOff={x:0,y:0}, editModeIndex = 0,
@@ -486,15 +356,10 @@ onresize=()=>{
   const relPos={}, relEmpty={};
   Object.keys(p).forEach(k=>{ relPos[k]={x:p[k].x/W,y:p[k].y/H}; });
   Object.keys(e).forEach(k=>{ relEmpty[k]={x:e[k].x/W,y:e[k].y/H}; });
-  
   W=c.width=innerWidth; H=c.height=innerHeight;
-  
-  // OPTIMIZATION: Resize offscreen canvas and flag for redraw
-  gridCanvas.width = W; gridCanvas.height = H;
-  gridNeedsRedraw = true;
-  
   Object.keys(relPos).forEach(k=>{ p[k]={...p[k], x:relPos[k].x*W, y:relPos[k].y*H}; m[k]=F(p[k].x,p[k].y); });
   Object.keys(relEmpty).forEach(k=>{ e[k]={x:relEmpty[k].x*W,y:relEmpty[k].y*H,f:F(relEmpty[k].x*W,relEmpty[k].y*H)}; });
+  mx=mx/innerWidth*W; my=my/innerHeight*H;
 };
 
 function makeDistortionCurve(amount) {
@@ -566,16 +431,8 @@ onmousemove=e=>{
     });
     return;
   }
-  if(hk && o[hk] && !o[hk].assigned){
-    const f = F(mx,my);
-    o[hk].s.frequency.exponentialRampToValueAtTime(f, a.currentTime + 0.05);
-    o[hk].p.pan.value = (mx / W - 0.5) * 2;
-  }
-  if(md && pv){
-    const f=F(mx,my);
-    pv.s.frequency.exponentialRampToValueAtTime(f, a.currentTime + 0.05);
-    pv.p.pan.value=(mx/W-0.5)*2;
-  }
+  if(hk&&o[hk]&&!o[hk].assigned){ const f=F(mx,my); o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05); o[hk].p.pan.value=(mx/W-0.5)*2; o[hk].f=f; o[hk].mx=mx; o[hk].my=my; }
+  if(md&&pv){ const f=F(mx,my); pv.s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05); pv.p.pan.value=(mx/W-0.5)*2; pv.mx=mx; pv.my=my; pv.f=f; }
 };
 
 onmousedown=e=>{
@@ -596,9 +453,7 @@ onmousedown=e=>{
   if(!clicked) Object.keys(e).forEach(id=>{ const {x:ex,y:ey}=e[id]; if(Math.sqrt((mx-ex)**2+(my-ey)**2)<25){ clicked=true; delete e[id]; } });
   if(!clicked){
     if(!e.shiftKey&&!e.ctrlKey&&!e.metaKey) Object.keys(sel).forEach(k=>delete sel[k]);
-    md=1;
-    const f=F(mx,my);
-    pv=createAudioNodes(f,mx,my, defaultNodeProps);
+    md=1; const f=F(mx,my); const audioNodes=createAudioNodes(f,mx,my, defaultNodeProps); pv={...audioNodes,mx,my,f};
   }
 };
 
@@ -606,13 +461,12 @@ onmouseup=e=>{
   if(e.button===2) return;
   if(drag){ drag=null; dragOff={x:0,y:0}; return; }
   md=0;
-  if(pv){
+  if(pv&&!pv.assigned){
     const emptyKeys=Object.keys(e);
-    if(emptyKeys.length>0) e[emptyKeys[emptyKeys.length-1]]={x:mx,y:my,f:F(mx,my)};
-    else e['e'+(ei++)]={x:mx,y:my,f:F(mx,my)};
-    stopOsc(pv, defaultNodeProps.release);
-    pv=null;
-  }
+    if(emptyKeys.length>0&&!pv.wasKey) e[emptyKeys[emptyKeys.length-1]]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    else e['e'+(ei++)]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    if(!pv.keepAlive) { stopOsc(pv, defaultNodeProps.release); pv=null; }
+  } else if(pv&&!pv.keepAlive){ stopOsc(pv, defaultNodeProps.release); pv=null; }
 };
 
 oncontextmenu=e=>{
@@ -641,7 +495,6 @@ function handleValueChange(direction) {
         if (mode === 'SCALE') {
             if (paramIndex === 0) currentScaleIndex = (currentScaleIndex + direction + SCALE_NAMES.length) % SCALE_NAMES.length;
             else if (paramIndex === 1) currentScaleRoot = (currentScaleRoot + direction + 12) % 12;
-            gridNeedsRedraw = true; // Redraw grid on scale change
         } else if (mode === 'OSC') {
             if (paramIndex === 0) { // TYPE
                 const typeIndex = OSC_TYPES.indexOf(props.type || 'sine');
@@ -718,27 +571,18 @@ onkeydown=e=>{
   if (valueDirection !== 0) { handleValueChange(valueDirection); e.preventDefault(); return; }
   
   if (arrowDirection !== 0) {
-      if (currentEditMode === 'SCALE') {
-          paramIndices.SCALE = (paramIndices.SCALE + arrowDirection + SCALE_PARAMS.length) % SCALE_PARAMS.length;
-      } else if (currentEditMode === 'SPACE') {
-          spaceModeIndex = (spaceModeIndex + arrowDirection + SPACE_MODES.length) % SPACE_MODES.length;
-          gridNeedsRedraw = true; // Redraw grid on space mode change
-      } else if (currentEditMode === 'OSC') {
-          paramIndices.OSC = (paramIndices.OSC + arrowDirection + OSC_PARAMS.length) % OSC_PARAMS.length;
-      } else if (currentEditMode === 'FILTER') {
-          paramIndices.FILTER = (paramIndices.FILTER + arrowDirection + FILTER_PARAMS.length) % FILTER_PARAMS.length;
-      } else if (currentEditMode === 'ADSR') {
-          paramIndices.ADSR = (paramIndices.ADSR + arrowDirection + ADSR_PARAMS.length) % ADSR_PARAMS.length;
-      } else if (currentEditMode === 'FX') {
-          paramIndices.FX = (paramIndices.FX + arrowDirection + FX_PARAMS.length) % FX_PARAMS.length;
-      } else if (currentEditMode === 'MOD') {
-          paramIndices.MOD = (paramIndices.MOD + arrowDirection + MOD_PARAMS.length) % MOD_PARAMS.length;
-      }
+      if (currentEditMode === 'SCALE') paramIndices.SCALE = (paramIndices.SCALE + arrowDirection + SCALE_PARAMS.length) % SCALE_PARAMS.length;
+      else if (currentEditMode === 'SPACE') spaceModeIndex = (spaceModeIndex + arrowDirection + SPACE_MODES.length) % SPACE_MODES.length;
+      else if (currentEditMode === 'OSC') paramIndices.OSC = (paramIndices.OSC + arrowDirection + OSC_PARAMS.length) % OSC_PARAMS.length;
+      else if (currentEditMode === 'FILTER') paramIndices.FILTER = (paramIndices.FILTER + arrowDirection + FILTER_PARAMS.length) % FILTER_PARAMS.length;
+      else if (currentEditMode === 'ADSR') paramIndices.ADSR = (paramIndices.ADSR + arrowDirection + ADSR_PARAMS.length) % ADSR_PARAMS.length;
+      else if (currentEditMode === 'FX') paramIndices.FX = (paramIndices.FX + arrowDirection + FX_PARAMS.length) % FX_PARAMS.length;
+      else if (currentEditMode === 'MOD') paramIndices.MOD = (paramIndices.MOD + arrowDirection + MOD_PARAMS.length) % MOD_PARAMS.length;
       e.preventDefault(); return;
   }
 
   if((e.ctrlKey||e.metaKey)&&k==='a'){ e.preventDefault(); Object.keys(p).forEach(key=>{ sel[key]=true; }); return; }
-  if(k === 'Tab') { e.preventDefault(); editModeIndex = (editModeIndex + 1) % EDIT_MODES.length; gridNeedsRedraw = true; return; }
+  if(k === 'Tab') { e.preventDefault(); editModeIndex = (editModeIndex + 1) % EDIT_MODES.length; return; }
   if(k==='?'||k==='/'){ e.preventDefault(); help=!help; return; }
   if(k==='Escape'){ e.preventDefault(); esc=1; stopAll(); Object.keys(sel).forEach(k=>delete sel[k]); return; }
   if(k===' '||k==='Space'){
@@ -760,39 +604,19 @@ onkeydown=e=>{
   const isAlphaNum=/^[a-zA-Z0-9]$/.test(k);
   if(!isAlphaNum) return;
   pk.add(k);
-  if(m[k]){ 
-    if(!o[k]) o[k]={...createAudioNodes(m[k],p[k].x,p[k].y, p[k] || {}),assigned:true};
-    if (!sel[k]) {
-        sel[k] = 'temp';
-    }
-  } else { 
-    if(!o[k]){
-        hk=k;
-        const f=F(mx,my);
-        o[k]={...createAudioNodes(f,mx,my,defaultNodeProps), assigned:false };
-    } 
-  }
+  if(m[k]){ sel[k] = true; if(!o[k]) o[key]={...createAudioNodes(m[k],p[key].x,p[key].y, p[key] || {}),assigned:true}; } 
+  else { if(!o[k]){ hk=k; const f=F(mx,my); o[k]={...createAudioNodes(f,mx,my,defaultNodeProps),assigned:false,mx,my,f}; } }
 };
 
 onkeyup=e=>{
   const k=e.key;
   if(k==='Escape'){ esc=0; return; }
   if(k===' '||k==='Space'||k==='Backspace'||k==='?'||k==='/'||k.includes('Arrow')||k==='Tab') return;
-  
-  pk.delete(k);
-
+  delete sel[k]; pk.delete(k);
   if(o[k]){
-    if(!o[k].assigned){
-        const f = F(mx, my);
-        m[k] = f;
-        p[k] = {x:mx, y:my, ...defaultNodeProps};
-    }
-    if(!s[k]){ stopOsc(o[k], p[k]?.release || defaultNodeProps.release); delete o[k]; }
+    if(!o[k].assigned){ m[k]=o[k].f; p[k]={x:o[k].mx||mx,y:o[k].my||my, ...defaultNodeProps}; }
+    if(!s[k]){ stopOsc(o[k], p[k]?.release); delete o[k]; }
     if(hk===k) hk=null;
-  }
-  
-  if (sel[k] === 'temp') {
-      delete sel[k];
   }
 };
 
@@ -805,15 +629,11 @@ document.getElementById('h').onclick=()=>{ help=!help; };
 function r(){
   requestAnimationFrame(r);
   A.getByteTimeDomainData(d);
-  
-  // OPTIMIZATION: Redraw the cached grid only if needed
-  if(audioReady) redrawCachedGrid();
-  
   x.fillStyle=THEME.colors.backgroundFade;
   x.fillRect(0,0,W,H);
 
-  // OPTIMIZATION: Draw the pre-rendered grid from the offscreen canvas
-  x.drawImage(gridCanvas, 0, 0);
+  drawSpaceGrid();
+  drawScaleOverlay();
 
   if(!audioReady || connectionMsg) {
       x.font = THEME.fonts.connectionMsg; x.textAlign = 'center';
@@ -874,10 +694,6 @@ function r(){
   }
 
   t+=0.015;
-  const sx=t%1*W;
-  x.strokeStyle=THEME.colors.default; x.shadowBlur=THEME.shadows.blurNodeActive; x.shadowColor=THEME.colors.default; x.globalAlpha=0.5; x.lineWidth=1;
-  x.beginPath(); x.moveTo(sx,0); x.lineTo(sx,H); x.stroke(); x.globalAlpha=1;
-
 
   let y=H-20;
   const currentEditMode = EDIT_MODES[editModeIndex];
@@ -886,68 +702,62 @@ function r(){
   
   x.font=THEME.fonts.listStatus;
   const selKeys = Object.keys(sel).filter(key => sel[key]);
-  const paramIndex = paramIndices[currentEditMode];
-  let text = '';
 
-  const props = selKeys.length > 0 ? p[selKeys[0]] : defaultNodeProps;
-  if (selKeys.length > 0) {
-      text = `Selected: ${selKeys.join(' ').toUpperCase()} | `;
-  } else {
-      text = 'Defaults: ';
+  if (selKeys.length === 0) { // Display defaults
+      let text = 'Defaults: ';
+      const paramIndex = paramIndices[currentEditMode];
+      if (currentEditMode === 'SCALE') {
+          const scaleText = `Scale: ${SCALE_NAMES[currentScaleIndex]}`;
+          const rootText = `Root: ${NOTE_NAMES[currentScaleRoot]}`;
+          text += paramIndex === 0 ? `[${scaleText}]` : scaleText;
+          text += ' | ';
+          text += paramIndex === 1 ? `[${rootText}]` : rootText;
+      } else if (currentEditMode === 'SPACE') {
+          text = `Spatial Mode: [${SPACE_MODES[spaceModeIndex]}]`;
+      } else if (currentEditMode === 'OSC') {
+          const typeText = `Type: ${defaultNodeProps.type.toUpperCase()}`;
+          const volText = `Vol: ${~~(defaultNodeProps.vol * 100)}%`;
+          text += paramIndex === 0 ? `[${typeText}]` : typeText;
+          text += ' | ';
+          text += paramIndex === 1 ? `[${volText}]` : volText;
+      } else if (currentEditMode === 'ADSR') {
+          text += ADSR_PARAMS.map((p,i) => {
+              const val = defaultNodeProps[p.toLowerCase()].toFixed(2);
+              return i === paramIndex ? `[${p}:${val}]` : `${p}:${val}`;
+          }).join(' | ');
+      } else if (currentEditMode === 'FILTER') {
+          const typeText = `Type: ${defaultNodeProps.filterType.toUpperCase()}`;
+          const freqText = `Freq: ${~~defaultNodeProps.filterFreq}Hz`;
+          const qText = `Q: ${defaultNodeProps.filterQ.toFixed(2)}`;
+          text += paramIndex === 0 ? `[${typeText}]` : typeText;
+          text += ' | ';
+          text += paramIndex === 1 ? `[${freqText}]` : freqText;
+          text += ' | ';
+          text += paramIndex === 2 ? `[${qText}]` : qText;
+      } else if (currentEditMode === 'FX') {
+          text += FX_PARAMS.map((p, i) => {
+              let val = '';
+              if (p === 'DISTORT') val = `${~~(defaultNodeProps.distortionAmount / 10)}%`;
+              else if (p === 'REVERB') val = `${~~(defaultNodeProps.reverbWet * 100)}%`;
+              else if (p === 'ECHO_MIX') val = `${~~(defaultNodeProps.echoMix * 100)}%`;
+              else if (p === 'ECHO_FDBK') val = `${~~(defaultNodeProps.echoFeedback * 100)}%`;
+              else if (p === 'TREMOLO') val = `${~~(defaultNodeProps.tremoloDepth * 100)}%`;
+              else if (p === 'PAN') val = `${~~(defaultNodeProps.pan * 100)}%`;
+              const paramText = `${p}:${val}`;
+              return i === paramIndex ? `[${paramText}]` : paramText;
+          }).join(' | ');
+      } else if (currentEditMode === 'MOD') {
+          const targetText = `Target: ${defaultNodeProps.lfoTarget}`;
+          const rateText = `Rate: ${defaultNodeProps.lfoRate.toFixed(1)}Hz`;
+          const depthText = `Depth: ${defaultNodeProps.lfoDepth.toFixed(0)}`;
+          text += paramIndex === 0 ? `[${targetText}]` : targetText;
+          text += ' | ';
+          text += paramIndex === 1 ? `[${rateText}]` : rateText;
+          text += ' | ';
+          text += paramIndex === 2 ? `[${depthText}]` : depthText;
+      }
+      x.fillText(text, 10, y); y -= 20;
   }
-
-  if (currentEditMode === 'SCALE') {
-      const scaleText = `Scale: ${SCALE_NAMES[currentScaleIndex]}`;
-      const rootText = `Root: ${NOTE_NAMES[currentScaleRoot]}`;
-      text += paramIndex === 0 ? `[${scaleText}]` : scaleText;
-      text += ' | ';
-      text += paramIndex === 1 ? `[${rootText}]` : rootText;
-  } else if (currentEditMode === 'SPACE') {
-      text = `Spatial Mode: [${SPACE_MODES[spaceModeIndex]}]`;
-  } else if (currentEditMode === 'OSC') {
-      const typeText = `Type: ${props.type.toUpperCase()}`;
-      const volText = `Vol: ${~~((props.vol || 0.4) * 100)}%`;
-      text += paramIndex === 0 ? `[${typeText}]` : typeText;
-      text += ' | ';
-      text += paramIndex === 1 ? `[${volText}]` : volText;
-  } else if (currentEditMode === 'ADSR') {
-      text += ADSR_PARAMS.map((p,i) => {
-          const val = (props[p.toLowerCase()] || defaultNodeProps[p.toLowerCase()]).toFixed(2);
-          return i === paramIndex ? `[${p}:${val}]` : `${p}:${val}`;
-      }).join(' | ');
-  } else if (currentEditMode === 'FILTER') {
-      const typeText = `Type: ${props.filterType.toUpperCase()}`;
-      const freqText = `Freq: ${~~props.filterFreq}Hz`;
-      const qText = `Q: ${props.filterQ.toFixed(2)}`;
-      text += paramIndex === 0 ? `[${typeText}]` : typeText;
-      text += ' | ';
-      text += paramIndex === 1 ? `[${freqText}]` : freqText;
-      text += ' | ';
-      text += paramIndex === 2 ? `[${qText}]` : qText;
-  } else if (currentEditMode === 'FX') {
-      text += FX_PARAMS.map((p, i) => {
-          let val = '';
-          if (p === 'DISTORT') val = `${~~((props.distortionAmount || 0) / 10)}%`;
-          else if (p === 'REVERB') val = `${~~((props.reverbWet || 0) * 100)}%`;
-          else if (p === 'ECHO_MIX') val = `${~~((props.echoMix || 0) * 100)}%`;
-          else if (p === 'ECHO_FDBK') val = `${~~((props.echoFeedback || 0) * 100)}%`;
-          else if (p === 'TREMOLO') val = `${~~((props.tremoloDepth || 0) * 100)}%`;
-          else if (p === 'PAN') val = `${~~((props.pan || 0) * 100)}%`;
-          const paramText = `${p}:${val}`;
-          return i === paramIndex ? `[${paramText}]` : paramText;
-      }).join(' | ');
-  } else if (currentEditMode === 'MOD') {
-      const targetText = `Target: ${props.lfoTarget}`;
-      const rateText = `Rate: ${props.lfoRate.toFixed(1)}Hz`;
-      const depthText = `Depth: ${props.lfoDepth.toFixed(0)}`;
-      text += paramIndex === 0 ? `[${targetText}]` : targetText;
-      text += ' | ';
-      text += paramIndex === 1 ? `[${rateText}]` : rateText;
-      text += ' | ';
-      text += paramIndex === 2 ? `[${depthText}]` : depthText;
-  }
-  
-  x.fillText(text, 10, y); y -= 20;
   
   if(help){
     x.save(); x.textAlign='center';

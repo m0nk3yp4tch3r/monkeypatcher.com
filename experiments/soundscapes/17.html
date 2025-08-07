@@ -55,8 +55,8 @@ const THEME = {
         helpTextHighlight: '#0cf',
         scaleNote: 'rgba(0,255,255,0.4)',
         scaleGrid: 'rgba(0,255,255,0.15)',
-        tonnetzHighlight: 'rgba(0, 255, 255, 0.05)',
-        tonnetzRootHighlight: 'rgba(0, 255, 255, 0.1)',
+        tonnetzHighlight: 'rgba(0, 255, 255, 0.1)',
+        tonnetzRootHighlight: 'rgba(0, 255, 255, 0.2)',
     },
     fonts: {
         helpButton: '20px monospace',
@@ -164,46 +164,48 @@ const F_LOGARITHMIC = (x, y) => Math.pow(2, (x / W * 4)) * 55 * Math.pow(2, 1 - 
 
 const getTonnetzNoteAndPos = (px, py) => {
     const hexSize = Math.min(W / 20, H / 15);
-    const center_x = W / 2;
-    const center_y = H / 2;
-
-    // Convert pixel to fractional axial coordinates (pointy top)
-    const q_float = (Math.sqrt(3)/3 * (px - center_x) - 1/3 * (py - center_y)) / hexSize;
-    const r_float = (                        2/3 * (py - center_y)) / hexSize;
-    
-    // Hex rounding
-    let q = Math.round(q_float);
-    let r = Math.round(r_float);
-    let s = Math.round(-q_float - r_float);
-    const q_diff = Math.abs(q - q_float);
-    const r_diff = Math.abs(r - r_float);
-    const s_diff = Math.abs(s - (-q_float - r_float));
-    
-    if (q_diff > r_diff && q_diff > s_diff) {
-        q = -r - s;
-    } else if (r_diff > s_diff) {
-        r = -q - s;
-    } else {
-        s = -q - r;
-    }
-
-    // Calculate MIDI note from axial coordinates
-    const rootNote = 60; // C4
-    const majorThirdStep = 4; // semitones
-    const perfectFifthStep = 7; // semitones
-    // q-axis maps to M3, r-axis maps to P5
-    const midiNote = rootNote + q * majorThirdStep + r * perfectFifthStep;
-
-    // Calculate the screen center of the determined hexagon
-    const hex_center_x = center_x + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-    const hex_center_y = center_y + hexSize * (                  3/2 * r);
-
-    return { midi: Math.round(midiNote), x: hex_center_x, y: hex_center_y };
+    const hexWidth = Math.sqrt(3) * hexSize;
+    const hexHeight = 2 * hexSize * 3/4;
+    const q_float = (px - W/2) / hexWidth;
+    const r_float = (py - H/2) / hexHeight - ( (Math.round((py - H/2)/hexHeight)) % 2 === 0 ? 0 : 0.5);
+    const q = Math.round(q_float);
+    const r = Math.round(r_float);
+    const rootNote = 60;
+    const fifthStep = 7, majorThirdStep = 4;
+    let midiNote = rootNote + r * fifthStep;
+    if (r % 2 !== 0) midiNote += (q - 0.5) * majorThirdStep;
+    else midiNote += q * majorThirdStep;
+    const centerX = q * hexWidth + (r % 2) * (hexWidth / 2) + W/2;
+    const centerY = r * hexHeight + H/2;
+    return { midi: Math.round(midiNote), x: centerX, y: centerY };
 };
 
 const F_TONNETZ = (px, py) => {
-    const { midi } = getTonnetzNoteAndPos(px, py);
-    return 440 * Math.pow(2, (midi - 69) / 12);
+    const hexSize = Math.min(W / 20, H / 15);
+    const hexWidth = Math.sqrt(3) * hexSize;
+    const hexHeight = 2 * hexSize * 3/4;
+    const q_approx = (px - W/2) / hexWidth, r_approx = (py - H/2) / hexHeight;
+    let centers = [];
+    for(let r_off = -1; r_off <= 1; r_off++) {
+        for(let q_off = -1; q_off <= 1; q_off++) {
+            const q = Math.round(q_approx + q_off), r = Math.round(r_approx + r_off);
+            centers.push({x: q * hexWidth + (r % 2) * (hexWidth / 2) + W/2, y: r * hexHeight + H/2});
+        }
+    }
+    centers.sort((a,b) => (Math.hypot(a.x-px, a.y-py) - Math.hypot(b.x-px, b.y-py)));
+    const nearest3 = centers.slice(0, 3);
+    let totalWeight = 0, weightedFreqSum = 0;
+    nearest3.forEach(center => {
+        let dist = Math.hypot(center.x - px, center.y - py);
+        if (dist < 0.001) dist = 0.001;
+        const weight = 1 / Math.pow(dist, 2);
+        const midi = getTonnetzNoteAndPos(center.x, center.y).midi;
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        totalWeight += weight;
+        weightedFreqSum += freq * weight;
+    });
+    if (totalWeight === 0) return F_LOGARITHMIC(px, py);
+    return weightedFreqSum / totalWeight;
 };
 
 const F_CIRCULAR = (x, y) => {
@@ -258,7 +260,6 @@ const numberToScale = (number = 4095) => {
 };
 
 const freqToNote = (freq) => {
-    if (freq <= 0) return { name: '?', octave: 0, noteIndex: 0, midi: 0 };
     const A4 = 440;
     const semitones = 12 * Math.log2(freq / A4);
     const noteNum = Math.round(semitones) + 69;
@@ -343,18 +344,14 @@ const drawHexagon = (ctx, px, py, size) => {
 
 function drawTonnetzGrid(ctx) {
     const hexSize = Math.min(W / 20, H / 15);
+    const hexWidth = Math.sqrt(3) * hexSize, hexHeight = 2 * hexSize * 3/4;
     ctx.strokeStyle = THEME.colors.grid; ctx.lineWidth = 0.5; ctx.shadowBlur = 0;
-    const q_range = Math.ceil(W / (Math.sqrt(3) * hexSize)) + 2;
-    const r_range = Math.ceil(H / (1.5 * hexSize)) + 2;
-
-    for (let r = -Math.ceil(r_range / 1.5); r < Math.ceil(r_range / 1.5); r++) {
-        for (let q = -Math.ceil(q_range / 1.5); q < Math.ceil(q_range / 1.5); q++) {
-            const hex_center_x = W/2 + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-            const hex_center_y = H/2 + hexSize * (3/2 * r);
-            if (hex_center_x > -hexSize && hex_center_x < W + hexSize && hex_center_y > -hexSize && hex_center_y < H + hexSize) {
-                drawHexagon(ctx, hex_center_x, hex_center_y, hexSize); 
-                ctx.stroke();
-            }
+    const cols = Math.ceil(W / hexWidth) + 2, rows = Math.ceil(H / hexHeight) + 2;
+    for (let row = -Math.ceil(rows/2); row < Math.ceil(rows/2); row++) {
+        for (let col = -Math.ceil(cols/2); col < Math.ceil(cols/2); col++) {
+            const px = col * hexWidth + (row % 2) * (hexWidth / 2) + W/2;
+            const py = row * hexHeight + H/2;
+            drawHexagon(ctx, px, py, hexSize); ctx.stroke();
         }
     }
 };
@@ -415,37 +412,22 @@ function drawScaleOverlay(ctx) {
             ctx.globalAlpha = 1; ctx.shadowBlur = 0;
         }
     } else if (currentSpaceMode === 'TONNETZ') {
-        const hexSize = Math.min(W / 20, H / 15);
-        const q_range = Math.ceil(W / (Math.sqrt(3) * hexSize)) + 2;
-        const r_range = Math.ceil(H / (1.5 * hexSize)) + 2;
-
-        for (let r = -Math.ceil(r_range / 1.5); r < Math.ceil(r_range / 1.5); r++) {
-            for (let q = -Math.ceil(q_range / 1.5); q < Math.ceil(q_range / 1.5); q++) {
-                const midiNote = 60 + q * 4 + r * 7;
-                const note = freqToNote(440 * Math.pow(2, (midiNote - 69) / 12));
+        const hexSize = Math.min(W / 20, H / 15), hexWidth = Math.sqrt(3) * hexSize, hexHeight = 2 * hexSize * 3/4;
+        const cols = Math.ceil(W / hexWidth) + 2, rows = Math.ceil(H / hexHeight) + 2;
+        for (let row = -Math.ceil(rows/2); row < Math.ceil(rows/2); row++) {
+            for (let col = -Math.ceil(cols/2); col < Math.ceil(cols/2); col++) {
+                const px = col * hexWidth + (row % 2) * (hexWidth / 2) + W/2;
+                const py = row * hexHeight + H/2;
+                const note = freqToNote(F_TONNETZ(px, py));
                 const relativeNote = (note.noteIndex - currentScaleRoot + 12) % 12;
-                
                 if (scalePattern.includes(relativeNote)) {
-                    const px = W/2 + hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
-                    const py = H/2 + hexSize * (3/2 * r);
-
-                    if (px > -hexSize && px < W + hexSize && py > -hexSize && py < H + hexSize) {
-                        ctx.fillStyle = relativeNote === 0 ? THEME.colors.tonnetzRootHighlight : THEME.colors.tonnetzHighlight;
-                        ctx.shadowBlur = THEME.shadows.tonnetzGlow;
-                        ctx.shadowColor = THEME.colors.selection;
-                        drawHexagon(ctx, px, py, hexSize); 
-                        ctx.fill();
-
-                        // Add note name text
-                        ctx.shadowBlur = 0; // Turn off shadow for text
-                        ctx.fillStyle = THEME.colors.scaleNote; // Use a visible color for the text
-                        ctx.font = THEME.fonts.hexNote;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(`${note.name}${note.octave}`, px, py);
-                        
-                        ctx.shadowBlur = 0; // Reset shadow
-                    }
+                    // MODIFICATION: More subtle fill color, slight glow, no text.
+                    ctx.fillStyle = relativeNote === 0 ? THEME.colors.tonnetzRootHighlight : THEME.colors.tonnetzHighlight;
+                    ctx.shadowBlur = THEME.shadows.tonnetzGlow;
+                    ctx.shadowColor = THEME.colors.selection;
+                    drawHexagon(ctx, px, py, hexSize); 
+                    ctx.fill();
+                    ctx.shadowBlur = 0; // Reset shadow
                 }
             }
         }
@@ -486,15 +468,13 @@ onresize=()=>{
   const relPos={}, relEmpty={};
   Object.keys(p).forEach(k=>{ relPos[k]={x:p[k].x/W,y:p[k].y/H}; });
   Object.keys(e).forEach(k=>{ relEmpty[k]={x:e[k].x/W,y:e[k].y/H}; });
-  
   W=c.width=innerWidth; H=c.height=innerHeight;
-  
   // OPTIMIZATION: Resize offscreen canvas and flag for redraw
   gridCanvas.width = W; gridCanvas.height = H;
   gridNeedsRedraw = true;
-  
   Object.keys(relPos).forEach(k=>{ p[k]={...p[k], x:relPos[k].x*W, y:relPos[k].y*H}; m[k]=F(p[k].x,p[k].y); });
   Object.keys(relEmpty).forEach(k=>{ e[k]={x:relEmpty[k].x*W,y:relEmpty[k].y*H,f:F(relEmpty[k].x*W,relEmpty[k].y*H)}; });
+  mx=mx/innerWidth*W; my=my/innerHeight*H;
 };
 
 function makeDistortionCurve(amount) {
@@ -566,16 +546,8 @@ onmousemove=e=>{
     });
     return;
   }
-  if(hk && o[hk] && !o[hk].assigned){
-    const f = F(mx,my);
-    o[hk].s.frequency.exponentialRampToValueAtTime(f, a.currentTime + 0.05);
-    o[hk].p.pan.value = (mx / W - 0.5) * 2;
-  }
-  if(md && pv){
-    const f=F(mx,my);
-    pv.s.frequency.exponentialRampToValueAtTime(f, a.currentTime + 0.05);
-    pv.p.pan.value=(mx/W-0.5)*2;
-  }
+  if(hk&&o[hk]&&!o[hk].assigned){ const f=F(mx,my); o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05); o[hk].p.pan.value=(mx/W-0.5)*2; o[hk].f=f; o[hk].mx=mx; o[hk].my=my; }
+  if(md&&pv){ const f=F(mx,my); pv.s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05); pv.p.pan.value=(mx/W-0.5)*2; pv.mx=mx; pv.my=my; pv.f=f; }
 };
 
 onmousedown=e=>{
@@ -596,9 +568,7 @@ onmousedown=e=>{
   if(!clicked) Object.keys(e).forEach(id=>{ const {x:ex,y:ey}=e[id]; if(Math.sqrt((mx-ex)**2+(my-ey)**2)<25){ clicked=true; delete e[id]; } });
   if(!clicked){
     if(!e.shiftKey&&!e.ctrlKey&&!e.metaKey) Object.keys(sel).forEach(k=>delete sel[k]);
-    md=1;
-    const f=F(mx,my);
-    pv=createAudioNodes(f,mx,my, defaultNodeProps);
+    md=1; const f=F(mx,my); const audioNodes=createAudioNodes(f,mx,my, defaultNodeProps); pv={...audioNodes,mx,my,f};
   }
 };
 
@@ -606,13 +576,12 @@ onmouseup=e=>{
   if(e.button===2) return;
   if(drag){ drag=null; dragOff={x:0,y:0}; return; }
   md=0;
-  if(pv){
+  if(pv&&!pv.assigned){
     const emptyKeys=Object.keys(e);
-    if(emptyKeys.length>0) e[emptyKeys[emptyKeys.length-1]]={x:mx,y:my,f:F(mx,my)};
-    else e['e'+(ei++)]={x:mx,y:my,f:F(mx,my)};
-    stopOsc(pv, defaultNodeProps.release);
-    pv=null;
-  }
+    if(emptyKeys.length>0&&!pv.wasKey) e[emptyKeys[emptyKeys.length-1]]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    else e['e'+(ei++)]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    if(!pv.keepAlive) { stopOsc(pv, defaultNodeProps.release); pv=null; }
+  } else if(pv&&!pv.keepAlive){ stopOsc(pv, defaultNodeProps.release); pv=null; }
 };
 
 oncontextmenu=e=>{
@@ -761,16 +730,9 @@ onkeydown=e=>{
   if(!isAlphaNum) return;
   pk.add(k);
   if(m[k]){ 
-    if(!o[k]) o[k]={...createAudioNodes(m[k],p[k].x,p[k].y, p[k] || {}),assigned:true};
-    if (!sel[k]) {
-        sel[k] = 'temp';
-    }
+    if(!o[k]) o[k]={...createAudioNodes(m[k],p[k].x,p[k].y, p[k] || {}),assigned:true}; 
   } else { 
-    if(!o[k]){
-        hk=k;
-        const f=F(mx,my);
-        o[k]={...createAudioNodes(f,mx,my,defaultNodeProps), assigned:false };
-    } 
+    if(!o[k]){ hk=k; const f=F(mx,my); o[k]={...createAudioNodes(f,mx,my,defaultNodeProps),assigned:false,mx,my,f}; } 
   }
 };
 
@@ -778,21 +740,11 @@ onkeyup=e=>{
   const k=e.key;
   if(k==='Escape'){ esc=0; return; }
   if(k===' '||k==='Space'||k==='Backspace'||k==='?'||k==='/'||k.includes('Arrow')||k==='Tab') return;
-  
-  pk.delete(k);
-
+  delete sel[k]; pk.delete(k);
   if(o[k]){
-    if(!o[k].assigned){
-        const f = F(mx, my);
-        m[k] = f;
-        p[k] = {x:mx, y:my, ...defaultNodeProps};
-    }
+    if(!o[k].assigned){ m[k]=o[k].f; p[k]={x:o[k].mx||mx,y:o[k].my||my, ...defaultNodeProps}; }
     if(!s[k]){ stopOsc(o[k], p[k]?.release || defaultNodeProps.release); delete o[k]; }
     if(hk===k) hk=null;
-  }
-  
-  if (sel[k] === 'temp') {
-      delete sel[k];
   }
 };
 

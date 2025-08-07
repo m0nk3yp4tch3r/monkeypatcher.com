@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+*{margin:0;padding:0;cursor:none}
+body{background:#000;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh}
+#h{position:fixed;top:10px;right:10px;z-index:2;user-select:none; color: #0f0; font: 20px monospace; text-shadow: 0 0 10px #0f0;}
+#help-link {
+    display: none;
+    position: absolute;
+    color: #0cf;
+    font: 14px monospace;
+    text-decoration: none;
+    text-shadow: 0 0 10px #0cf;
+    z-index: 3;
+}
+#help-link:hover {
+    color: #fff;
+    text-shadow: 0 0 15px #fff;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="h">?</div>
+<a id="help-link" href="help.html" target="_blank">→ SEE FULL DOCUMENTATION</a>
+<script>
+const helpLink = document.getElementById('help-link');
+// ===================
+// STYLE CONFIGURATION
+// ===================
+const THEME = {
+    colors: {
+        background: '#000',
+        default: '#0f0',
+        selection: '#0ff',
+        active: '#f90',
+        sustain: '#0f0',
+        sustainText: '#0f0',
+        sustainShadow: '#0f0',
+        innerSelection: '#0df',
+        msgInactive: '#f00',
+        msgActive: '#0f0',
+        emptyNode: '#666',
+        grid: 'rgba(0,255,0,0.05)',
+        textKey: '#fff',
+        editMode: '#f00',
+        editModeText: '#0ff',
+        previewFill: 'rgba(0, 204, 255, 0.05)',
+        backgroundFade: 'rgba(0,0,0,0.08)',
+        helpLinkHover: '#fff',
+        helpText: '#0f0',
+        helpTextHighlight: '#0cf',
+        scaleRoot: '#ff0',
+        scaleNote: 'rgba(0,255,255,0.4)',
+        scaleGrid: 'rgba(0,255,255,0.15)',
+        scaleLabel: '#0ff'
+    },
+    fonts: {
+        helpButton: '20px monospace',
+        connectionMsg: 'bold 24px monospace',
+        docLink: '14px monospace',
+        nodeKey: 'bold 20px monospace',
+        nodeHz: '12px monospace',
+        cursorHz: '15px monospace',
+        editMode: '18px monospace',
+        previewStatus: '15px monospace',
+        playingStatus: '15px monospace',
+        listStatus: '20px monospace',
+        allKeys: '15px monospace',
+        helpFont: '14px monospace',
+        scaleNote: '10px monospace'
+    },
+    shadows: {
+        blurDefault: 2,
+        blurNode: 15,
+        blurNodeActive: 30,
+        blurNodeSelected: 15,
+        blurConnectionMsg: 30,
+        blurHelp: 0.25,
+        blurScale: 10
+    }
+};
+
+
+// Setup
+const a=new AudioContext(),
+A=a.createAnalyser(),
+g=a.createGain(),
+c=document.getElementById('c'),
+x=c.getContext('2d');
+
+let W=c.width=innerWidth,
+H=c.height=innerHeight;
+
+// Apply initial styles from THEME object
+document.body.style.backgroundColor = THEME.colors.background;
+const hDiv = document.getElementById('h');
+hDiv.style.color = THEME.colors.default;
+hDiv.style.font = THEME.fonts.helpButton;
+hDiv.style.textShadow = `0 0 ${THEME.shadows.blurDefault}px ${THEME.colors.default}`;
+
+
+A.fftSize=2048;
+g.connect(A);
+A.connect(a.destination);
+g.gain.value=0.3;
+
+// State
+const o={}, m={}, p={}, s={}, e={}, sel={},
+      d=new Uint8Array(A.frequencyBinCount);
+
+// Default settings for new nodes
+const defaultNodeProps = {
+    type: 'sine',
+    vol: 0.4,
+    attack: 0.01,
+    decay: 0.1,
+    sustain: 0.5,
+    release: 0.5,
+    filterType: 'lowpass',
+    filterFreq: 20000,
+    filterQ: 1,
+    distortionAmount: 0,
+    reverbWet: 0,
+    echoMix: 0,
+    echoFeedback: 0,
+    tremoloDepth: 0,
+    pan: 0,
+    lfoRate: 5,
+    lfoDepth: 0,
+    lfoTarget: 'FILTER'
+};
+
+const EDIT_MODES = ['OSC', 'ADSR', 'FILTER', 'FX', 'MOD', 'SCALE'];
+const OSC_TYPES=['sine','triangle','square','sawtooth'];
+const ADSR_PARAMS = ['ATTACK', 'DECAY', 'SUSTAIN', 'RELEASE'];
+const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
+const FX_PARAMS = ['DISTORT', 'REVERB', 'ECHO_MIX', 'ECHO_FDBK', 'TREMOLO', 'PAN'];
+const MOD_TARGETS = ['FILTER', 'PITCH'];
+
+// Scale definitions
+const SCALE_PRESETS = {
+    'CHROMATIC': 4095,  // 111111111111
+    'MAJOR': 2741,      // 101010110101
+    'MINOR': 2905,      // 101101011001
+    'DORIAN': 2901,     // 101101010101
+    'PHRYGIAN': 3417,   // 110101011001
+    'LYDIAN': 2733,     // 101010101101
+    'MIXOLYDIAN': 2709,  // 101010010101
+    'AEOLIAN': 2905,    // 101101011001 (same as minor)
+    'LOCRIAN': 3433,    // 110101101001
+    'PENTATONIC': 2385, // 100101010001
+    'BLUES': 3505,      // 110110110001
+    'HARMONIC_MIN': 2777, // 101011011001
+    'MELODIC_MIN': 2773,  // 101011010101
+    'WHOLE_TONE': 1365,   // 010101010101
+    'DIMINISHED': 2340,   // 100100100100
+    'AUGMENTED': 585      // 001001001001
+};
+
+const SCALE_NAMES = Object.keys(SCALE_PRESETS);
+let currentScaleIndex = 1; // Start with MAJOR
+let currentScaleRoot = 0; // C
+let showScaleGrid = true;
+
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+// Scale conversion function
+const numberToScale = (number = 4095) => {
+    if (number < 0 || number > 4095) {
+        console.log("Input number must be odd and between 0 and 4095. Using major (2741) instead.");
+        number = 2741;
+    }
+    if (number % 2 === 0) {
+        console.log("Even numbers don't create a 'real' scale");
+    }
+    const binaryString = (number >>> 0).toString(2).padStart(12, '0');
+    const bits = binaryString.split('');
+    const scale = bits.reduce(function (acc, bit, i) {
+        if (bit === '1') {
+            acc.unshift(11 - i); // Prepend note index
+        }
+        return acc;
+    }, []);
+    return scale;
+};
+
+// Get note name from frequency
+const freqToNote = (freq) => {
+    const A4 = 440;
+    const semitones = 12 * Math.log2(freq / A4);
+    const noteNum = Math.round(semitones) + 69; // MIDI note number
+    const octave = Math.floor(noteNum / 12) - 1;
+    const noteIndex = noteNum % 12;
+    return { name: NOTE_NAMES[noteIndex], octave, noteIndex };
+};
+
+// Check if frequency is in current scale
+const isInScale = (freq) => {
+    const note = freqToNote(freq);
+    const scalePattern = numberToScale(SCALE_PRESETS[SCALE_NAMES[currentScaleIndex]]);
+    const relativeNote = (note.noteIndex - currentScaleRoot + 12) % 12;
+    return scalePattern.includes(relativeNote);
+};
+
+// Draw scale grid
+const drawScaleGrid = () => {
+    if (!showScaleGrid || EDIT_MODES[editModeIndex] !== 'SCALE') {
+        return;
+    }
+    
+    const scalePattern = numberToScale(SCALE_PRESETS[SCALE_NAMES[currentScaleIndex]]);
+    
+    // Draw horizontal lines for scale notes across octaves
+    for (let octave = 0; octave < 8; octave++) {
+        for (let noteIndex of scalePattern) {
+            const actualNote = (noteIndex + currentScaleRoot) % 12;
+            const freq = 440 * Math.pow(2, (octave - 4) + (actualNote - 9) / 12);
+            
+            // Find Y position for this frequency
+            for (let y = 0; y < H; y += 10) {
+                const testFreq = F(W/2, y);
+                if (Math.abs(testFreq - freq) / freq < 0.01) {
+                    x.strokeStyle = THEME.colors.scaleNote;
+                    x.lineWidth = 1;
+                    x.shadowBlur = THEME.shadows.blurScale;
+                    x.shadowColor = x.strokeStyle;
+                    x.globalAlpha = 0.3;
+                    x.beginPath();
+                    x.moveTo(0, y);
+                    x.lineTo(W, y);
+                    x.stroke();
+                    
+                    // Label important notes
+                    if (noteIndex === 0 || noteIndex === 4 || noteIndex === 7) {
+                        x.fillStyle = THEME.colors.scaleLabel;
+                        x.font = THEME.fonts.scaleNote;
+                        x.globalAlpha = 0.6;
+                        x.textAlign = 'left';
+                        const noteName = NOTE_NAMES[(actualNote) % 12];
+                        x.fillText(`${noteName}${octave}`, 5, y - 3);
+                    }
+                    x.globalAlpha = 1;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Draw vertical lines for scale notes at different octave positions
+    for (let noteIndex of scalePattern) {
+        const actualNote = (noteIndex + currentScaleRoot) % 12;
+        
+        // Draw vertical lines at multiple X positions where this note appears
+        for (let oct = 0; oct < 5; oct++) {
+            const baseFreq = 55 * Math.pow(2, oct); // Base frequency for this octave
+            const noteFreq = baseFreq * Math.pow(2, actualNote / 12);
+            
+            // Find X position for this frequency
+            for (let x_pos = 0; x_pos < W; x_pos += 10) {
+                const testFreq = F(x_pos, H/2);
+                if (Math.abs(testFreq - noteFreq) / noteFreq < 0.05) {
+                    x.strokeStyle = THEME.colors.scaleNote;
+                    x.lineWidth = 0.5;
+                    x.shadowBlur = THEME.shadows.blurScale;
+                    x.shadowColor = x.strokeStyle;
+                    x.globalAlpha = 0.2;
+                    x.beginPath();
+                    x.moveTo(x_pos, 0);
+                    x.lineTo(x_pos, H);
+                    x.stroke();
+                    x.globalAlpha = 1;
+                    break;
+                }
+            }
+        }
+    }
+    
+    x.shadowBlur = 0;
+};
+
+let mx=W/2,my=H/2,t=0,hk=null,md=0,pv=null,pk=new Set(),esc=0,ei=0,help=0,
+    drag=null,dragOff={x:0,y:0}, editModeIndex = 0, adsrParamIndex = 0, fxParamIndex = 0, modParamIndex = 0,
+    heldKeys = {}, lastIncrementTime = 0, audioReady = false, connectionMsg = 'Click to Connect';
+
+// Impulse Response for Convolver
+let impulseBuffer;
+(async function createImpulse() {
+    const sampleRate = a.sampleRate;
+    const length = sampleRate * 1.5;
+    impulseBuffer = a.createBuffer(2, length, sampleRate);
+    const impulseL = impulseBuffer.getChannelData(0);
+    const impulseR = impulseBuffer.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+        const decay = Math.pow(1 - i / length, 2.5);
+        impulseL[i] = (Math.random() * 2 - 1) * decay;
+        impulseR[i] = (Math.random() * 2 - 1) * decay;
+    }
+})();
+
+
+// Handle resize
+onresize=()=>{
+  const relPos={};
+  Object.keys(p).forEach(k=>{ relPos[k]={x:p[k].x/W,y:p[k].y/H}; });
+  const relEmpty={};
+  Object.keys(e).forEach(k=>{ relEmpty[k]={x:e[k].x/W,y:e[k].y/H}; });
+
+  W=c.width=innerWidth; H=c.height=innerHeight;
+
+  Object.keys(relPos).forEach(k=>{
+    p[k]={...p[k], x:relPos[k].x*W, y:relPos[k].y*H};
+    m[k]=F(p[k].x,p[k].y);
+  });
+  Object.keys(relEmpty).forEach(k=>{
+    e[k]={x:relEmpty[k].x*W,y:relEmpty[k].y*H,f:F(relEmpty[k].x*W,relEmpty[k].y*H)};
+  });
+
+  mx=mx/innerWidth*W; my=my/innerHeight*H;
+};
+
+// Calculate frequency
+const F=(x,y)=>Math.pow(2,(x/W*4))*55*Math.pow(2,1-y/H*3);
+
+// ===================
+// AUDIO NODE CREATION
+// ===================
+
+function makeDistortionCurve(amount) {
+  const k = typeof amount === 'number' ? amount : 50;
+  const n_samples = 44100;
+  const curve = new Float32Array(n_samples);
+  const deg = Math.PI / 180;
+  for (let i = 0; i < n_samples; ++i) {
+    const x = i * 2 / n_samples - 1;
+    curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+  }
+  return curve;
+};
+
+const createAudioNodes=(f,x,y, nodeProps)=>{
+  const now = a.currentTime;
+  // Merge defaults with provided props
+  const np = {...defaultNodeProps, ...nodeProps};
+
+  const v = a.createGain();
+  v.gain.setValueAtTime(0, now);
+
+  const osc = a.createOscillator();
+  osc.frequency.value = f;
+  osc.type = np.type;
+
+  const filter = a.createBiquadFilter();
+  filter.type = np.filterType;
+  filter.frequency.value = np.filterFreq;
+  filter.Q.value = np.filterQ;
+
+  const distortion = a.createWaveShaper();
+  distortion.curve = makeDistortionCurve(np.distortionAmount);
+  distortion.oversample = '4x';
+  
+  const convolver = a.createConvolver();
+  convolver.buffer = impulseBuffer;
+  const reverbWet = a.createGain();
+  reverbWet.gain.value = np.reverbWet;
+  
+  const delay = a.createDelay(1.0);
+  delay.delayTime.value = 0.5;
+  const feedback = a.createGain();
+  feedback.gain.value = np.echoFeedback;
+  const echoMix = a.createGain();
+  echoMix.gain.value = np.echoMix;
+
+  const tremoloLFO = a.createOscillator();
+  tremoloLFO.frequency.value = 5;
+  const tremoloDepth = a.createGain();
+  tremoloDepth.gain.value = np.tremoloDepth;
+  tremoloLFO.connect(tremoloDepth);
+  tremoloDepth.connect(v.gain);
+  tremoloLFO.start();
+
+  const modLFO = a.createOscillator();
+  modLFO.frequency.value = np.lfoRate;
+  const modDepth = a.createGain();
+  modDepth.gain.value = np.lfoDepth;
+  modLFO.connect(modDepth);
+  const modTarget = np.lfoTarget;
+  if (modTarget === 'FILTER') {
+      modDepth.connect(filter.frequency);
+  } else if (modTarget === 'PITCH') {
+      modDepth.connect(osc.frequency);
+  }
+  modLFO.start();
+
+  const panner = a.createStereoPanner();
+  panner.pan.value = np.pan !== 0 ? np.pan : (x / W - 0.5) * 2;
+
+  osc.connect(filter);
+  filter.connect(distortion);
+  const lastNode = distortion;
+
+  lastNode.connect(panner);
+  lastNode.connect(convolver).connect(reverbWet).connect(panner);
+  lastNode.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(echoMix);
+  echoMix.connect(panner);
+  
+  panner.connect(v);
+  v.connect(g);
+  osc.start();
+
+  const attack = np.attack;
+  const decay = np.decay;
+  const sustain = np.sustain;
+  v.gain.linearRampToValueAtTime(np.vol, now + attack);
+  v.gain.linearRampToValueAtTime(sustain * np.vol, now + attack + decay);
+  
+  return {s:osc,v,p:panner,f,filter,distortion,reverbWet,delay,feedback,echoMix,tremoloDepth, modLFO, modDepth};
+};
+
+const stopOsc=(osc, releaseTime)=>{
+  if(!osc || !osc.v) {
+      return;
+  }
+  const release = releaseTime !== undefined ? releaseTime : defaultNodeProps.release;
+  const now = a.currentTime;
+  osc.v.gain.cancelScheduledValues(now);
+  osc.v.gain.setValueAtTime(osc.v.gain.value, now);
+  osc.v.gain.linearRampToValueAtTime(0.0001, now + release);
+  setTimeout(()=>{
+      if (osc.s) {
+        osc.s.stop();
+        osc.s.disconnect();
+      }
+    }, (release + 0.1) * 1000);
+};
+
+const stopAll = () => {
+    Object.keys(o).forEach(k => {
+        if (o[k]) {
+            stopOsc(o[k], p[k]?.release || defaultNodeProps.release);
+            delete o[k];
+        }
+    });
+    Object.keys(s).forEach(k => delete s[k]);
+};
+
+
+// ===================
+// MOUSE CONTROLS
+// ===================
+
+onmousemove=e=>{
+  mx=e.clientX;
+  my=e.clientY;
+
+  if(drag){
+    Object.keys(sel).forEach(k=>{
+        if(sel[k] && p[k]){
+            let newX, newY;
+            if(k === drag) {
+                newX = mx;
+                newY = my;
+            } else {
+                const offset = dragOff.nodes[k];
+                newX = offset ? mx + offset.x : p[k].x;
+                newY = offset ? my + offset.y : p[k].y;
+            }
+            p[k].x = newX; p[k].y = newY; m[k] = F(newX, newY);
+            if(o[k] && o[k].s){
+                o[k].s.frequency.exponentialRampToValueAtTime(m[k], a.currentTime + 0.05);
+                o[k].p.pan.value = p[k].pan || (newX / W - 0.5) * 2;
+            }
+        }
+    });
+    return;
+  }
+
+  if(hk&&o[hk]&&!o[hk].assigned){
+    const f=F(mx,my);
+    o[hk].s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    o[hk].p.pan.value=(mx/W-0.5)*2;
+    o[hk].f=f; o[hk].mx=mx; o[hk].my=my;
+  }
+
+  if(md&&pv){
+    const f=F(mx,my);
+    pv.s.frequency.exponentialRampToValueAtTime(f,a.currentTime+0.05);
+    pv.p.pan.value=(mx/W-0.5)*2;
+    pv.mx=mx; pv.my=my; pv.f=f;
+  }
+};
+
+onmousedown=e=>{
+  if (!audioReady) {
+    a.resume();
+    audioReady = true;
+    connectionMsg = null;
+  }
+
+  if(e.button===2){
+      return;
+  }
+  mx=e.clientX; my=e.clientY;
+  if(help){
+    const hx=W/2, hy=H/2-140, docLine=15, lineY=hy+docLine*25;
+    const docText='→ DOCUMENTATION: help.html';
+    x.font = THEME.fonts.docLink;
+    x.textAlign='center';
+    const tw=x.measureText(docText).width;
+    x.textAlign='left';
+    if(mx>hx-tw/2&&mx<hx+tw/2&&my>lineY-10&&my<lineY+10){
+        window.open('help.html','_blank');
+        return;
+    }
+    help=false;
+    return;
+  }
+
+  let clicked=false;
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    if(Math.sqrt((mx-kx)**2+(my-ky)**2)<25){
+      clicked=true;
+      if(!sel[k]&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey){
+          Object.keys(sel).forEach(sk=>delete sel[sk]);
+      }
+      sel[k]=true;
+      drag=k;
+      dragOff={x:mx,y:my,nodes:{}};
+      Object.keys(sel).forEach(sk=>{
+        if(sel[sk] && sk!==k && p[sk]){
+            dragOff.nodes[sk]={x:p[sk].x-mx,y:p[sk].y-my};
+        }
+      });
+    }
+  });
+
+  if(!clicked){
+    Object.keys(e).forEach(id=>{
+      const {x:ex,y:ey}=e[id];
+      if(Math.sqrt((mx-ex)**2+(my-ey)**2)<25){
+          clicked=true;
+          delete e[id];
+      }
+    });
+  }
+
+  if(!clicked){
+    if(!e.shiftKey&&!e.ctrlKey&&!e.metaKey){
+        Object.keys(sel).forEach(k=>delete sel[k]);
+    }
+    md=1;
+    const f=F(mx,my);
+    const audioNodes=createAudioNodes(f,mx,my, {});  // Will use defaultNodeProps
+    pv={...audioNodes,mx,my,f};
+  }
+};
+
+onmouseup=e=>{
+  if(e.button===2){
+      return;
+  }
+  if(drag){
+      drag=null;
+      dragOff={x:0,y:0};
+      return;
+  }
+  md=0;
+  if(pv&&!pv.assigned){
+    const emptyKeys=Object.keys(e);
+    if(emptyKeys.length>0&&!pv.wasKey){
+        e[emptyKeys[emptyKeys.length-1]]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    } else {
+        e['e'+(ei++)]={x:pv.mx,y:pv.my,f:F(pv.mx,pv.my)};
+    }
+    if(!pv.keepAlive){
+        stopOsc(pv, defaultNodeProps.release);
+        pv=null;
+    }
+  } else if(pv&&!pv.keepAlive){
+      stopOsc(pv, defaultNodeProps.release);
+      pv=null;
+  }
+};
+
+oncontextmenu=e=>{
+  e.preventDefault();
+  Object.keys(p).forEach(k=>{
+    const {x:kx,y:ky}=p[k];
+    if(Math.sqrt((e.clientX-kx)**2+(e.clientY-ky)**2)<25){
+      if(o[k]){
+          stopOsc(o[k], p[k]?.release || defaultNodeProps.release);
+          delete o[k];
+      }
+      delete m[k]; delete p[k]; delete s[k]; delete sel[k];
+    }
+  });
+};
+
+// ===================
+// KEYBOARD & MOUSEWHEEL CONTROLS
+// ===================
+
+function handleValueChange(direction, isScroll = false) {
+    const currentEditMode = EDIT_MODES[editModeIndex];
+
+    // Handle SCALE mode without requiring selection
+    if (currentEditMode === 'SCALE') {
+        if (isScroll) {
+            // Scroll changes root note
+            currentScaleRoot = (currentScaleRoot + direction + 12) % 12;
+        } else {
+            // Up/Down toggles grid visibility
+            showScaleGrid = !showScaleGrid;
+        }
+        return;
+    }
+
+    const selKeys=Object.keys(sel).filter(key => sel[key]);
+    
+    // If no nodes selected, edit defaults
+    if (selKeys.length === 0) {
+        if (currentEditMode === 'FILTER') {
+            defaultNodeProps.filterFreq *= (direction > 0 ? 1.1 : 1/1.1);
+            defaultNodeProps.filterFreq = Math.max(20, Math.min(20000, defaultNodeProps.filterFreq));
+        } else if (currentEditMode === 'OSC') {
+            defaultNodeProps.vol = Math.max(0, Math.min(1, defaultNodeProps.vol + direction * 0.01));
+        } else if (currentEditMode === 'ADSR') {
+            const param = ADSR_PARAMS[adsrParamIndex];
+            if(param === 'ATTACK') {
+                defaultNodeProps.attack = Math.max(0.001, defaultNodeProps.attack + direction * 0.01);
+            } else if(param === 'DECAY') {
+                defaultNodeProps.decay = Math.max(0.001, defaultNodeProps.decay + direction * 0.01);
+            } else if(param === 'SUSTAIN') {
+                defaultNodeProps.sustain = Math.max(0, Math.min(1, defaultNodeProps.sustain + direction * 0.01));
+            } else if(param === 'RELEASE') {
+                defaultNodeProps.release = Math.max(0.001, defaultNodeProps.release + direction * 0.01);
+            }
+        } else if (currentEditMode === 'FX') {
+            const param = FX_PARAMS[fxParamIndex];
+            if(param === 'DISTORT') {
+                defaultNodeProps.distortionAmount = Math.max(0, Math.min(1000, defaultNodeProps.distortionAmount + direction * 5));
+            } else if (param === 'REVERB') {
+                defaultNodeProps.reverbWet = Math.max(0, Math.min(1, defaultNodeProps.reverbWet + direction * 0.02));
+            } else if (param === 'ECHO_MIX') {
+                defaultNodeProps.echoMix = Math.max(0, Math.min(1, defaultNodeProps.echoMix + direction * 0.02));
+            } else if (param === 'ECHO_FDBK') {
+                defaultNodeProps.echoFeedback = Math.max(0, Math.min(0.95, defaultNodeProps.echoFeedback + direction * 0.02));
+            } else if (param === 'TREMOLO') {
+                defaultNodeProps.tremoloDepth = Math.max(0, Math.min(1, defaultNodeProps.tremoloDepth + direction * 0.02));
+            } else if (param === 'PAN') {
+                defaultNodeProps.pan = Math.max(-1, Math.min(1, defaultNodeProps.pan + direction * 0.05));
+            }
+        } else if (currentEditMode === 'MOD') {
+            if (isScroll) {
+                defaultNodeProps.lfoRate = Math.max(0.1, defaultNodeProps.lfoRate + direction * 0.5);
+            } else {
+                defaultNodeProps.lfoDepth = Math.max(0, defaultNodeProps.lfoDepth + direction * 5);
+            }
+        }
+        
+        // Update preview if active
+        if(pv) {
+            if(currentEditMode === 'OSC' && pv.s) {
+                pv.s.type = defaultNodeProps.type;
+            }
+            if(currentEditMode === 'FILTER' && pv.filter) {
+                pv.filter.frequency.linearRampToValueAtTime(defaultNodeProps.filterFreq, a.currentTime + 0.02);
+            }
+            if(currentEditMode === 'OSC' && pv.v) {
+                pv.v.gain.linearRampToValueAtTime(defaultNodeProps.vol, a.currentTime + 0.02);
+            }
+        }
+        return;
+    }
+    
+    // Edit selected nodes
+    if (currentEditMode === 'FILTER') {
+        selKeys.forEach(key => {
+            if(p[key]){
+                let currentFreq = p[key].filterFreq || 20000;
+                currentFreq *= (direction > 0 ? 1.1 : 1/1.1);
+                p[key].filterFreq = Math.max(20, Math.min(20000, currentFreq));
+                if(o[key]) {
+                    o[key].filter.frequency.linearRampToValueAtTime(p[key].filterFreq, a.currentTime + 0.02);
+                }
+            }
+        });
+    } else if (currentEditMode === 'OSC') {
+        selKeys.forEach(key => {
+            if(p[key]){
+                p[key].vol = Math.max(0, Math.min(1, (p[key].vol||0.4) + direction * 0.01));
+                if(o[key]) {
+                    o[key].v.gain.linearRampToValueAtTime(p[key].vol, a.currentTime + 0.02);
+                }
+            }
+        });
+    } else if (currentEditMode === 'ADSR') {
+        const param = ADSR_PARAMS[adsrParamIndex];
+        selKeys.forEach(key => {
+            if(!p[key]) {
+                return;
+            }
+            if(param === 'ATTACK') {
+                p[key].attack = Math.max(0.001, (p[key].attack || 0.01) + direction * 0.01);
+            } else if(param === 'DECAY') {
+                p[key].decay = Math.max(0.001, (p[key].decay || 0.1) + direction * 0.01);
+            } else if(param === 'SUSTAIN') {
+                p[key].sustain = Math.max(0, Math.min(1, (p[key].sustain || 0.5) + direction * 0.01));
+            } else if(param === 'RELEASE') {
+                p[key].release = Math.max(0.001, (p[key].release || 0.5) + direction * 0.01);
+            }
+        });
+    } else if (currentEditMode === 'FX') {
+        const param = FX_PARAMS[fxParamIndex];
+        selKeys.forEach(key => {
+            if(!p[key]) {
+                return;
+            }
+            if(param === 'DISTORT'){
+                p[key].distortionAmount = Math.max(0, Math.min(1000, (p[key].distortionAmount || 0) + direction * 5));
+                if(o[key]) {
+                    o[key].distortion.curve = makeDistortionCurve(p[key].distortionAmount);
+                }
+            } else if (param === 'REVERB') {
+                p[key].reverbWet = Math.max(0, Math.min(1, (p[key].reverbWet || 0) + direction * 0.02));
+                if(o[key]) {
+                    o[key].reverbWet.gain.linearRampToValueAtTime(p[key].reverbWet, a.currentTime + 0.02);
+                }
+            } else if (param === 'ECHO_MIX') {
+                p[key].echoMix = Math.max(0, Math.min(1, (p[key].echoMix || 0) + direction * 0.02));
+                if(o[key]) {
+                    o[key].echoMix.gain.linearRampToValueAtTime(p[key].echoMix, a.currentTime + 0.02);
+                }
+            } else if (param === 'ECHO_FDBK') {
+                p[key].echoFeedback = Math.max(0, Math.min(0.95, (p[key].echoFeedback || 0) + direction * 0.02));
+                if(o[key]) {
+                    o[key].feedback.gain.linearRampToValueAtTime(p[key].echoFeedback, a.currentTime + 0.02);
+                }
+            } else if (param === 'TREMOLO') {
+                p[key].tremoloDepth = Math.max(0, Math.min(1, (p[key].tremoloDepth || 0) + direction * 0.02));
+                if(o[key]) {
+                    o[key].tremoloDepth.gain.linearRampToValueAtTime(p[key].tremoloDepth * (p[key].vol || 0.4), a.currentTime + 0.02);
+                }
+            } else if (param === 'PAN') {
+                p[key].pan = Math.max(-1, Math.min(1, (p[key].pan || 0) + direction * 0.05));
+                if(o[key]) {
+                    o[key].p.pan.linearRampToValueAtTime(p[key].pan, a.currentTime + 0.02);
+                }
+            }
+        });
+    } else if (currentEditMode === 'MOD') {
+        if (isScroll) {
+            selKeys.forEach(key => {
+                if(p[key]) {
+                    p[key].lfoRate = Math.max(0.1, (p[key].lfoRate || 5) + direction * 0.5);
+                    if(o[key]) {
+                        o[key].modLFO.frequency.linearRampToValueAtTime(p[key].lfoRate, a.currentTime + 0.02);
+                    }
+                }
+            });
+        } else {
+            selKeys.forEach(key => {
+                if(p[key]) {
+                    p[key].lfoDepth = Math.max(0, (p[key].lfoDepth || 0) + direction * 5);
+                    if(o[key]) {
+                        o[key].modDepth.gain.linearRampToValueAtTime(p[key].lfoDepth, a.currentTime + 0.02);
+                    }
+                }
+            });
+        }
+    }
+}
+
+onwheel = e => {
+    e.preventDefault();
+    handleValueChange(e.deltaY < 0 ? 1 : -1, true);
+};
+
+onkeydown=e=>{
+  const k=e.key;
+  if(e.repeat && (k === 'ArrowUp' || k === 'ArrowDown')) {
+      // Allow continuous change for arrow up/down
+  } else if (e.repeat) {
+      return;
+  }
+
+  if (k === 'ArrowUp' || k === 'ArrowDown') {
+      if (!heldKeys[k]) {
+          heldKeys[k] = true;
+          handleValueChange(k === 'ArrowUp' ? 1 : -1);
+      }
+      return;
+  }
+
+  if (m[k] && md && pv) {
+      if (o[k]) {
+          stopOsc(o[k], p[k]?.release || defaultNodeProps.release);
+          delete o[k];
+      }
+      p[k] = {x: mx, y: my, ...defaultNodeProps};  // Include default props
+      m[k] = F(mx, my);
+      pv.assigned = true; pv.keepAlive = false;
+      stopOsc(pv, defaultNodeProps.release); pv = null;
+      pk.add(k);
+      return;
+  }
+
+  if((e.ctrlKey||e.metaKey)&&k==='a'){
+      e.preventDefault();
+      Object.keys(p).forEach(key=>{ sel[key]=true; });
+      return;
+  }
+  if(k === 'Tab') {
+      e.preventDefault();
+      editModeIndex = (editModeIndex + 1) % EDIT_MODES.length;
+      return;
+  }
+  
+  const selKeys=Object.keys(sel).filter(key => sel[key]);
+  
+  const currentEditMode = EDIT_MODES[editModeIndex];
+  const direction = k === 'ArrowRight' ? 1 : -1;
+  
+  if (currentEditMode === 'SCALE' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+    currentScaleIndex = (currentScaleIndex + direction + SCALE_NAMES.length) % SCALE_NAMES.length;
+    e.preventDefault();
+    return;
+  }
+  
+  if(selKeys.length === 0 && currentEditMode !== 'SCALE' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+    if (currentEditMode === 'FILTER') {
+        const i = FILTER_TYPES.indexOf(defaultNodeProps.filterType);
+        defaultNodeProps.filterType = FILTER_TYPES[(i+direction+FILTER_TYPES.length)%FILTER_TYPES.length];
+        if(pv && pv.filter) {
+            pv.filter.type = defaultNodeProps.filterType;
+        }
+    } else if (currentEditMode === 'OSC') {
+        const i = OSC_TYPES.indexOf(defaultNodeProps.type);
+        defaultNodeProps.type = OSC_TYPES[(i+direction+OSC_TYPES.length)%OSC_TYPES.length];
+        if(pv && pv.s) {
+            pv.s.type = defaultNodeProps.type;
+        }
+    } else if (currentEditMode === 'ADSR') {
+        adsrParamIndex = (adsrParamIndex + direction + ADSR_PARAMS.length) % ADSR_PARAMS.length;
+    } else if (currentEditMode === 'FX') {
+        fxParamIndex = (fxParamIndex + direction + FX_PARAMS.length) % FX_PARAMS.length;
+    } else if (currentEditMode === 'MOD') {
+        const i = MOD_TARGETS.indexOf(defaultNodeProps.lfoTarget);
+        defaultNodeProps.lfoTarget = MOD_TARGETS[(i+direction+MOD_TARGETS.length)%MOD_TARGETS.length];
+    }
+    e.preventDefault();
+    return;
+  }
+  
+  if(selKeys.length){
+    let changed = false;
+
+    if (currentEditMode === 'FILTER' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        selKeys.forEach(key => {
+            if(p[key]){
+                const i = FILTER_TYPES.indexOf(p[key].filterType||'lowpass');
+                p[key].filterType=FILTER_TYPES[(i+direction+FILTER_TYPES.length)%FILTER_TYPES.length];
+                if(o[key]){
+                    o[key].filter.type=p[key].filterType;
+                }
+            }
+        });
+        changed = true;
+    } else if (currentEditMode === 'OSC' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        selKeys.forEach(key => {
+            if(p[key]){
+                const i = OSC_TYPES.indexOf(p[key].type||'sine');
+                p[key].type=OSC_TYPES[(i+direction+OSC_TYPES.length)%OSC_TYPES.length];
+                if(o[key]){
+                    o[key].s.type=p[key].type;
+                }
+            }
+        });
+        changed = true;
+    } else if (currentEditMode === 'ADSR' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        adsrParamIndex = (adsrParamIndex + direction + ADSR_PARAMS.length) % ADSR_PARAMS.length;
+        changed = true;
+    } else if (currentEditMode === 'FX' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        fxParamIndex = (fxParamIndex + direction + FX_PARAMS.length) % FX_PARAMS.length;
+        changed = true;
+    } else if (currentEditMode === 'MOD' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        selKeys.forEach(key => {
+            if(p[key]){
+                const i = MOD_TARGETS.indexOf(p[key].lfoTarget||'FILTER');
+                p[key].lfoTarget=MOD_TARGETS[(i+direction+MOD_TARGETS.length)%MOD_TARGETS.length];
+                if(o[key]){
+                    /* Re-routing needed */
+                }
+            }
+        });
+        changed = true;
+    }
+    if(changed) {
+        e.preventDefault();
+        return;
+    }
+  }
+
+  if(k==='?'||k==='/'){
+      e.preventDefault();
+      help=!help;
+      return;
+  }
+  if(k==='Escape'){
+      e.preventDefault();
+      esc=1;
+      stopAll();
+      Object.keys(sel).forEach(k=>delete sel[k]);
+      return;
+  }
+
+  if(k===' '||k==='Space'){
+    e.preventDefault();
+    if(hk&&o[hk]&&!o[hk].assigned){
+      m[hk]=o[hk].f;
+      p[hk]={x:o[hk].mx||mx,y:o[hk].my||my, ...defaultNodeProps};  // Include default props
+      o[hk].assigned=true; s[hk]=true; hk=null;
+      return;
+    }
+    const keysToToggle = selKeys.length ? selKeys : Object.keys(p).filter(key => Math.sqrt((mx-p[key].x)**2+(my-p[key].y)**2)<25);
+    if (keysToToggle.length === 0) {
+        pk.forEach(key => {
+            if(m[key]) {
+                keysToToggle.push(key);
+            }
+        })
+    }
+    
+    keysToToggle.forEach(key=>{
+      if(s[key]){
+          delete s[key];
+          if(o[key]){
+              stopOsc(o[key], p[key]?.release || defaultNodeProps.release);
+              delete o[key];
+          }
+      }
+      else{
+          s[key]=true;
+          if(!o[key]){ 
+            const nodeProps = p[key] ? {...p[key]} : {};  // Use stored props
+            const audioNodes=createAudioNodes(m[key],p[key].x,p[key].y, nodeProps); 
+            o[key]={...audioNodes,assigned:true}; 
+          }
+      }
+    });
+    return;
+  }
+
+  if(k==='Backspace'){
+    e.preventDefault();
+    if(esc){
+        stopAll();
+        Object.keys(m).forEach(k=>delete m[k]);
+        Object.keys(p).forEach(k=>delete p[k]);
+        Object.keys(e).forEach(k=>delete e[k]);
+        Object.keys(s).forEach(k=>delete s[k]);
+        Object.keys(sel).forEach(k=>delete sel[k]);
+        return;
+    }
+    const keysToDelete = selKeys.length ? selKeys : [...pk];
+    if (keysToDelete.length > 0) {
+        keysToDelete.forEach(key=>{
+            if(o[key]){
+                stopOsc(o[key], p[key]?.release || defaultNodeProps.release);
+                delete o[key];
+            }
+            delete m[key]; delete p[key]; delete s[key]; delete sel[key];
+        });
+    } else {
+        Object.keys(e).forEach(id=>delete e[id]);
+    }
+    return;
+  }
+
+  const isAlphaNum=/^[a-zA-Z0-9]$/.test(k);
+  if(!isAlphaNum){
+      return;
+  }
+
+  pk.add(k);
+
+  let filled=false;
+  Object.keys(e).forEach(id=>{
+    if(!filled){
+      const {x:ex,y:ey,f}=e[id];
+      if(Math.sqrt((mx-ex)**2+(my-ey)**2)<25){
+        filled=true; m[k]=f;
+        p[k]={x:ex,y:ey, ...defaultNodeProps};  // Include default props
+        delete e[id];
+        const audioNodes=createAudioNodes(f,ex,ey,{});  // Will use defaultNodeProps
+        o[k]={...audioNodes,assigned:true};
+      }
+    }
+  });
+  if(filled){
+      return;
+  }
+
+  if(md&&pv){
+    m[k]=F(mx,my);
+    p[k]={x:mx,y:my, ...defaultNodeProps};  // Include default props
+    pv.assigned=true; pv.keepAlive=true;
+    return;
+  }
+
+  if(m[k]){
+    sel[k] = true;
+    if(!o[k]){
+      const nodeProps = p[k] || {};  // Use existing props if available
+      const audioNodes=createAudioNodes(m[k],p[k].x,p[k].y, nodeProps);
+      o[k]={...audioNodes,assigned:true};
+    }
+  }else{
+    if(!o[k]){
+      hk=k; const f=F(mx,my);
+      const audioNodes=createAudioNodes(f,mx,my,{});  // Will use defaultNodeProps
+      o[k]={...audioNodes,assigned:false,mx,my,f};
+    }
+  }
+};
+
+onkeyup=e=>{
+  const k=e.key;
+  if (k === 'ArrowUp' || k === 'ArrowDown') {
+      delete heldKeys[k];
+      return;
+  }
+  if(k==='Escape'){
+      esc=0;
+      return;
+  }
+  if(k===' '||k==='Space'||k==='Backspace'||k==='?'||k==='/'||k.includes('Arrow')||k==='Tab'){
+      return;
+  }
+  delete sel[k]; pk.delete(k);
+
+  if(pv&&pv.keepAlive&&pv.assigned){
+    const audioNodes=createAudioNodes(pv.f,pv.mx,pv.my, {...defaultNodeProps});  // Use default props
+    o[k]={...audioNodes,assigned:true};
+    stopOsc(pv, defaultNodeProps.release); pv=null;
+  }
+
+  if(o[k]){
+    if(!o[k].assigned){
+      m[k]=o[k].f;
+      p[k]={x:o[k].mx||mx,y:o[k].my||my, ...defaultNodeProps};  // Include default props
+    }
+    if(!s[k]){
+        stopOsc(o[k], p[k]?.release || defaultNodeProps.release);
+        delete o[k];
+    }
+    if(hk===k){
+        hk=null;
+    }
+  }
+};
+
+document.getElementById('h').onclick=()=>{ help=!help; };
+
+// ===================
+// RENDER LOOP
+// ===================
+
+function r(){
+  const now = Date.now();
+  if (now - lastIncrementTime > 50) {
+      if (heldKeys['ArrowUp']) {
+          handleValueChange(1);
+      }
+      if (heldKeys['ArrowDown']) {
+          handleValueChange(-1);
+      }
+      if (heldKeys['ArrowUp'] || heldKeys['ArrowDown']) {
+          lastIncrementTime = now;
+      }
+  }
+
+  requestAnimationFrame(r);
+  A.getByteTimeDomainData(d);
+  
+  if (md) {
+      x.fillStyle = THEME.colors.previewFill;
+      x.fillRect(0,0,W,H);
+  }
+  
+  x.fillStyle=THEME.colors.backgroundFade;
+  x.fillRect(0,0,W,H);
+
+  // Draw scale grid first (behind everything)
+  drawScaleGrid();
+
+  // Draw default grid only if not in SCALE mode with grid on
+  if (!(EDIT_MODES[editModeIndex] === 'SCALE' && showScaleGrid)) {
+    x.strokeStyle=THEME.colors.grid; x.lineWidth=1;
+    for(let i=1;i<10;i++){
+        x.beginPath();
+        x.moveTo(i*W/10,0);
+        x.lineTo(i*W/10,H);
+        x.stroke();
+    }
+    for(let i=1;i<8;i++){
+        x.beginPath();
+        x.moveTo(0,i*H/8);
+        x.lineTo(W,i*H/8);
+        x.stroke();
+    }
+  }
+
+  if(!audioReady || connectionMsg) {
+      x.font = THEME.fonts.connectionMsg;
+      x.textAlign = 'center';
+      x.fillStyle = connectionMsg === 'Connected' ? THEME.colors.msgActive : THEME.colors.msgActive;
+      x.shadowColor = x.fillStyle;
+      x.shadowBlur = THEME.shadows.blurConnectionMsg;
+      x.fillText(connectionMsg, W/2, H/2);
+      x.shadowBlur = 0;
+  }
+  
+  if(!help && audioReady){
+    Object.keys(e).forEach(id=>{
+      const {x:ex,y:ey,f}=e[id];
+      x.strokeStyle = THEME.colors.emptyNode;
+      x.shadowBlur = THEME.shadows.blurDefault;
+      x.shadowColor = THEME.colors.emptyNode;
+      x.lineWidth=1; x.setLineDash([5,5]);
+      x.beginPath(); x.arc(ex,ey,15,0,Math.PI*2); x.stroke(); x.setLineDash([]);
+      x.fillStyle = THEME.colors.emptyNode;
+      x.font = THEME.fonts.nodeHz;
+      x.textAlign='left'; x.fillText(~~f+'Hz',ex+20,ey+3);
+    });
+
+    Object.keys(p).forEach(k=>{
+      const {x:kx,y:ky}=p[k];
+      const active=o[k]&&o[k].assigned;
+      const selected=sel[k];
+      const sustained=s[k];
+      const inScale = isInScale(m[k]);
+
+      let color = THEME.colors.default;
+      if (selected) {
+          color = THEME.colors.selection;
+      }
+      if (sustained) {
+          color = THEME.colors.sustain;
+      }
+      
+      if (EDIT_MODES[editModeIndex] === 'SCALE' && showScaleGrid && inScale) {
+          x.fillStyle = THEME.colors.scaleNote;
+          x.globalAlpha = 0.3;
+          x.beginPath();
+          x.arc(kx, ky, 22, 0, Math.PI * 2);
+          x.fill();
+          x.globalAlpha = 1;
+      }
+
+      const baseRadius = 15, baseLineWidth = 2;
+      let radius = baseRadius, lineWidth = baseLineWidth, shadowBlur = THEME.shadows.blurNode;
+      if (active) {
+          shadowBlur = THEME.shadows.blurNodeActive;
+          radius = baseRadius + 2 + Math.sin(t * 6) * 2;
+          lineWidth = baseLineWidth + 1;
+      }
+      if (selected) {
+          shadowBlur = THEME.shadows.blurNodeSelected;
+          lineWidth = baseLineWidth + 3;
+      }
+      
+      x.strokeStyle = color; x.fillStyle = color; x.shadowBlur = shadowBlur; x.shadowColor = color; x.lineWidth = lineWidth;
+      x.beginPath(); x.arc(kx, ky, radius, 0, Math.PI * 2); x.stroke();
+      x.beginPath(); x.arc(kx, ky, active ? 1 : 3, 0, Math.PI * 2); x.fill();
+      
+      if ((selected && active) || (selected && sustained)) {
+          x.strokeStyle = THEME.colors.innerSelection;
+          x.lineWidth = 2;
+          x.shadowBlur = THEME.shadows.blurNode;
+          x.shadowColor = x.strokeStyle;
+          x.beginPath();
+          x.arc(kx, ky, baseRadius * 0.75, 0, Math.PI * 2);
+          x.stroke();
+      }
+
+      x.fillStyle = THEME.colors.textKey;
+      x.font = THEME.fonts.nodeKey;
+      x.textAlign='center'; x.textBaseline='middle';
+      x.fillText(k.toUpperCase(),kx,ky);
+      x.fillStyle=color; x.font=THEME.fonts.nodeHz; x.textAlign='left';
+      const note = freqToNote(m[k]);
+      x.fillText(`${note.name}${note.octave} ${~~m[k]}Hz`,kx+25,ky+3);
+    });
+  }
+
+  const cf=F(mx,my);
+  const cursorNote = freqToNote(cf);
+  const cursorInScale = isInScale(cf);
+  
+  x.shadowBlur = THEME.shadows.blurDefault;
+  x.lineWidth=1;
+  let cursorColor = THEME.colors.default;
+  if(drag || hk || md){
+    cursorColor = THEME.colors.selection;
+  }
+  if (EDIT_MODES[editModeIndex] === 'SCALE' && showScaleGrid && cursorInScale) {
+      cursorColor = THEME.colors.scaleNote;
+  }
+  x.strokeStyle = cursorColor;
+  x.shadowColor = cursorColor;
+  
+  if (hk || md) {
+      x.shadowBlur=THEME.shadows.blurNodeActive; x.lineWidth=2;
+      x.beginPath(); x.arc(mx,my, 15,0,Math.PI*2); x.stroke();
+      x.beginPath(); x.arc(mx,my,8,0,Math.PI*2); x.stroke();
+  } else {
+      x.beginPath();
+      x.moveTo(mx-15,my);
+      x.lineTo(mx+15,my);
+      x.moveTo(mx,my-15);
+      x.lineTo(mx,my+15);
+      x.stroke();
+  }
+
+  if(audioReady && !help) {
+    x.fillStyle=THEME.colors.default;
+    x.font=THEME.fonts.cursorHz;
+    x.textAlign='left'; 
+    x.fillText(`${cursorNote.name}${cursorNote.octave} ${~~cf}Hz`,mx+20,my-20);
+    x.strokeStyle=THEME.colors.default;
+    x.lineWidth=2;
+    x.shadowBlur=THEME.shadows.blurNode;
+    x.shadowColor=THEME.colors.default;
+    x.beginPath();
+    const l=d.length;
+    for(let i=0;i<l;i++){
+        const v=d[i]/128, y=v*H/2, X=i/l*W;
+        if(i) {
+            x.lineTo(X,y);
+        } else {
+            x.moveTo(X,y);
+        }
+    }
+    x.stroke();
+  }
+
+  t+=0.015; const sx=t%1*W;
+  x.strokeStyle=THEME.colors.default; x.shadowBlur=THEME.shadows.blurNodeActive; x.shadowColor=THEME.colors.default; x.globalAlpha=0.5; x.lineWidth=1;
+  x.beginPath(); x.moveTo(sx,0); x.lineTo(sx,H); x.stroke(); x.globalAlpha=1;
+
+  let y=H-20;
+  
+  const currentEditMode = EDIT_MODES[editModeIndex];
+
+  if(!audioReady) {
+     x.shadowColor = THEME.colors.editMode; 
+  } else {
+    x.font = THEME.fonts.editMode;
+    x.fillStyle = THEME.colors.default;
+    x.fillText(`EDIT MODE: ${currentEditMode}`, 10, y); y -= 20;
+  }
+  
+  if(hk){
+      x.fillStyle=THEME.colors.active;
+      x.shadowColor=THEME.colors.active;
+      x.font=THEME.fonts.playingStatus;
+      x.fillText('▶ '+hk.toUpperCase()+' : '+~~o[hk].f+'Hz',10,y);
+      y-=20;
+  }
+  
+  const selKeys=Object.keys(sel).filter(k => sel[k]);
+  if(selKeys.length){
+    x.fillStyle=THEME.colors.default;
+    x.shadowColor=THEME.colors.default;
+    x.font=THEME.fonts.listStatus;
+    let selText = 'Selected: ' + selKeys.map(k=>k.toUpperCase()).join(' ');
+    const node = p[selKeys[0]];
+    if(node && currentEditMode !== 'SCALE'){
+        if (currentEditMode === 'OSC') {
+            selText += ` (${(node.type || 'sine').toUpperCase()} | Vol: ${~~((node.vol || 0.4) * 100)}%)`;
+        } else if (currentEditMode === 'ADSR') {
+            const param = ADSR_PARAMS[adsrParamIndex];
+            let val = '';
+            if(param === 'ATTACK') val = `${(node.attack || 0.01).toFixed(2)}s`;
+            else if(param === 'DECAY') val = `${(node.decay || 0.1).toFixed(2)}s`;
+            else if(param === 'SUSTAIN') val = `${~~((node.sustain || 0.5) * 100)}%`;
+            else if(param === 'RELEASE') val = `${(node.release || 0.5).toFixed(2)}s`;
+            selText += ` (ADSR: ${param} @ ${val})`;
+        } else if (currentEditMode === 'FILTER') {
+            selText += ` (Filter: ${(node.filterType || 'lowpass').toUpperCase()} @ ${~~node.filterFreq || 20000}Hz)`;
+        } else if (currentEditMode === 'FX') {
+            const param = FX_PARAMS[fxParamIndex];
+            let val = '';
+            if(param === 'DISTORT') val = `${~~((node.distortionAmount || 0)/10)}%`;
+            else if(param === 'REVERB') val = `${~~((node.reverbWet || 0) * 100)}%`;
+            else if(param === 'ECHO_MIX') val = `${~~((node.echoMix || 0) * 100)}%`;
+            else if(param === 'ECHO_FDBK') val = `${~~((node.echoFeedback || 0) * 100)}%`;
+            else if(param === 'TREMOLO') val = `${~~((node.tremoloDepth || 0) * 100)}%`;
+            else if(param === 'PAN') val = `${~~((node.pan || 0) * 100)}%`;
+            selText += ` (FX: ${param} @ ${val})`;
+        } else if (currentEditMode === 'MOD') {
+            const target = node.lfoTarget || 'FILTER';
+            const rate = (node.lfoRate || 5).toFixed(1);
+            const depth = (node.lfoDepth || 0).toFixed(0);
+            selText += ` (LFO: ${target} | Rate: ${rate}Hz | Depth: ${depth})`;
+        }
+    }
+    x.fillText(selText,10,y); y-=20;
+  }
+  
+  if (currentEditMode === 'SCALE') {
+    x.fillStyle=THEME.colors.scaleLabel;
+    x.shadowColor=THEME.colors.scaleLabel;
+    x.font=THEME.fonts.listStatus;
+    x.fillText(`Scale: ${SCALE_NAMES[currentScaleIndex]} | Root: ${NOTE_NAMES[currentScaleRoot]} | Grid: ${showScaleGrid ? 'ON' : 'OFF'}`,10,y);
+    y-=20;
+  } else if (selKeys.length === 0) {
+    x.fillStyle=THEME.colors.editModeText;
+    x.shadowColor=THEME.colors.editModeText;
+    x.font=THEME.fonts.listStatus;
+    let defaultText = 'Defaults: ';
+    if (currentEditMode === 'OSC') {
+        defaultText += `${defaultNodeProps.type.toUpperCase()} | Vol: ${~~(defaultNodeProps.vol * 100)}%`;
+    } else if (currentEditMode === 'ADSR') {
+        const param = ADSR_PARAMS[adsrParamIndex];
+        let val = '';
+        if(param === 'ATTACK') val = `${defaultNodeProps.attack.toFixed(2)}s`;
+        else if(param === 'DECAY') val = `${defaultNodeProps.decay.toFixed(2)}s`;
+        else if(param === 'SUSTAIN') val = `${~~(defaultNodeProps.sustain * 100)}%`;
+        else if(param === 'RELEASE') val = `${defaultNodeProps.release.toFixed(2)}s`;
+        defaultText += `ADSR: ${param} @ ${val}`;
+    } else if (currentEditMode === 'FILTER') {
+        defaultText += `Filter: ${defaultNodeProps.filterType.toUpperCase()} @ ${~~defaultNodeProps.filterFreq}Hz`;
+    } else if (currentEditMode === 'FX') {
+        const param = FX_PARAMS[fxParamIndex];
+        let val = '';
+        if(param === 'DISTORT') val = `${~~(defaultNodeProps.distortionAmount/10)}%`;
+        else if(param === 'REVERB') val = `${~~(defaultNodeProps.reverbWet * 100)}%`;
+        else if(param === 'ECHO_MIX') val = `${~~(defaultNodeProps.echoMix * 100)}%`;
+        else if(param === 'ECHO_FDBK') val = `${~~(defaultNodeProps.echoFeedback * 100)}%`;
+        else if(param === 'TREMOLO') val = `${~~(defaultNodeProps.tremoloDepth * 100)}%`;
+        else if(param === 'PAN') val = `${~~(defaultNodeProps.pan * 100)}%`;
+        defaultText += `FX: ${param} @ ${val}`;
+    } else if (currentEditMode === 'MOD') {
+        defaultText += `LFO: ${defaultNodeProps.lfoTarget} | Rate: ${defaultNodeProps.lfoRate.toFixed(1)}Hz | Depth: ${defaultNodeProps.lfoDepth.toFixed(0)}`;
+    }
+    x.fillText(defaultText,10,y); y-=20;
+  }
+  
+  const sus=Object.keys(s).filter(k=>s[k]);
+  if(sus.length){
+      x.fillStyle=THEME.colors.sustainText;
+      x.shadowColor=THEME.colors.sustainShadow;
+      x.font=THEME.fonts.listStatus;
+      x.fillText('Sustain:'+sus.map(k=>k.toUpperCase()).join(' '),10,y);
+      y-=20;
+  }
+  const ak=Object.keys(m);
+  if(ak.length){
+      x.font=THEME.fonts.allKeys;
+      x.fillText('Keys: '+ak.map(k=>k.toUpperCase()).join(' '),10,y);
+      y-=20;
+  }
+  
+  if(audioReady) {
+    x.fillStyle=THEME.colors.default;
+    x.shadowColor=THEME.colors.default;
+  }
+  
+  if(help){
+    x.save();
+    x.textAlign='center';
+    const hx=W/2, hy=H/2-140;
+    const lines=[
+      'HELP', '',
+      'A-Z/0-9 + MOVE = ASSIGN PITCH', 'CLICK NODE = SELECT / DRAG',
+      'TAB = CYCLE EDIT MODE (OSC/ADSR/FILTER/FX/MOD/SCALE)',
+      'ARROW UP/DOWN/SCROLL = CHANGE PARAMETER VALUE', 'ARROW LEFT/RIGHT = CHANGE PARAMETER TYPE',
+      'SPACE = SUSTAIN PITCH', 'BACKSPACE = DELETE', 'ESC = STOP ALL + CLEAR',
+      'RIGHT CLICK = REMOVE PITCH', 'CTRL/CMD + A = SELECT ALL', 'SHIFT + F = FULLSCREEN','',
+      'SCALE MODE: LEFT/RIGHT = Change Scale | UP/DOWN = Toggle Grid | SCROLL = Change Root',''
+    ];
+    lines.forEach((line,i)=>{
+      x.shadowBlur=THEME.shadows.blurHelp;
+      x.fillStyle = THEME.colors.helpText;
+      x.shadowColor = THEME.colors.helpText;
+      x.font = THEME.fonts.helpFont;
+      x.fillText(line,hx,hy+i*25);
+          const linkY = hy + (lines.length + 1) * 25;
+            const linkText = '→ SEE FULL DOCUMENTATION';
+            const textWidth = x.measureText(linkText).width;
+            helpLink.style.display = 'block';
+            helpLink.style.top = `${linkY - 8}px`;
+            helpLink.style.left = `${hx - textWidth / 2}px`;
+    });
+    x.restore();
+  } else {
+    helpLink.style.display = 'none';
+  }
+}
+r();
+
+document.addEventListener('keydown',e=>{
+    if(e.key==='F'&&e.shiftKey&&!e.repeat){
+        c.requestFullscreen();
+    }
+});
+</script>
+</body>
+</html>
