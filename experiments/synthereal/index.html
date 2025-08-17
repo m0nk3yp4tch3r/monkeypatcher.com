@@ -43,9 +43,10 @@
         .knob-value {
             font-size: 0.75rem; color: #5eead4; text-align: center; width: 60px;
             background-color: #1f2937; border: 1px solid #374151; border-radius: 4px;
-            padding: 2px 0; cursor: text;
+            padding: 2px 0; cursor: text; transition: all 0.2s;
         }
         .knob-value:focus { outline: none; border-color: #2dd4bf; background-color: #111827; }
+        .knob-value:hover { border-color: #4b5563; background-color: #374151; }
         .editor-select {
             background-color: #374151; border: 1px solid #4b5563; border-radius: 4px;
             color: white; padding: 4px; width: 100%; font-size: 0.75rem;
@@ -58,6 +59,70 @@
         }
         .param-control-btn:hover { background: #4b5563; color: white; }
         .param-control-btn.locked { background: #be123c; color: white; }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #374151;
+            transition: 0.3s;
+            border-radius: 24px;
+            border: 1px solid #4b5563;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #9ca3af;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #3b82f6;
+            border-color: #2563eb;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+            background-color: white;
+        }
+        
+        .midi-status {
+            display: flex; align-items: center; justify-content: center;
+            gap: 10px; margin-bottom: 15px; font-size: 0.8rem; color: #aaa;
+        }
+        .midi-indicator {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #333; transition: all 0.2s;
+        }
+        .midi-indicator.active {
+            background: #2dd4bf; box-shadow: 0 0 8px rgba(45,212,191,0.6);
+        }
+        .midi-mapping-input {
+            background: #374151; border: 1px solid #4b5563; border-radius: 4px;
+            color: white; padding: 4px 8px; width: 80px; font-size: 0.75rem;
+        }
     </style>
      <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -70,10 +135,27 @@
             <h1 class="text-4xl font-bold text-teal-400">Synthereal</h1>
         </header>
 
+        <!-- MIDI Section -->
+        <div class="bg-gray-800 rounded-lg shadow-xl p-4 mb-4">
+            <h2 class="text-xl font-bold text-teal-400 mb-3">MIDI Control</h2>
+            <div class="flex items-center justify-center gap-4 flex-wrap">
+                <div class="flex items-center gap-2">
+                    <label for="midiport" class="text-sm text-gray-300">MIDI Port:</label>
+                    <select id="midiport" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg p-2">
+                        <option>-- No MIDI --</option>
+                    </select>
+                </div>
+                <div class="midi-status">
+                    <div class="midi-indicator" id="midi-indicator"></div>
+                    <span id="midi-status-text">MIDI: Disconnected</span>
+                </div>
+            </div>
+        </div>
+
         <div class="bg-gray-800 rounded-lg shadow-xl p-6 mb-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <label for="timbre-select" class="block mb-2 text-sm font-medium text-gray-300">Select Timbre:</label>
+                    <label for="timbre-select" class="block mb-2 text-sm font-medium text-gray-300">Select Patch:</label>
                     <select id="timbre-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block w-full p-2.5">
                     </select>
                 </div>
@@ -84,9 +166,14 @@
                         <div id="volume-value" class="knob-value">0.30</div>
                     </div>
                     <div class="flex flex-col items-center">
+                        <label class="text-sm text-gray-400 mb-1">Auto Pan</label>
+                        <div class="knob-control"><div id="panner-knob" class="knob-input"></div></div>
+                        <div id="panner-value" class="knob-value">0.00</div>
+                    </div>
+                    <div class="flex flex-col items-center">
                         <label class="text-sm text-gray-400 mb-1">Reverb</label>
                         <div class="knob-control"><div id="reverb-knob" class="knob-input"></div></div>
-                        <div id="reverb-value" class="knob-value">0.30</div>
+                        <div id="reverb-value" class="knob-value">0.00</div>
                     </div>
                     <div class="flex flex-col items-center">
                         <label class="text-sm text-gray-400 mb-1">Vibrato</label>
@@ -108,21 +195,37 @@
         </div>
 
         <div id="editor-container" class="bg-gray-800 rounded-lg shadow-xl p-6 mb-6">
-             <h2 class="text-2xl font-bold text-teal-400 mb-4">Timbre Editor</h2>
-             <div class="flex items-center space-x-4 mb-4">
+             <h2 class="text-2xl font-bold text-teal-400 mb-4">Patch Editor</h2>
+             <div class="flex items-center space-x-4 mb-4 flex-wrap">
                 <label for="oscs" class="text-sm font-medium">Oscillators:</label>
                 <select id="oscs" class="bg-gray-700 border border-gray-600 rounded-md p-2">
                     <option>1</option><option>2</option><option>3</option><option>4</option>
                 </select>
                 <button id="test-note-btn" class="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Test Note</button>
-                <button id="randomize-all-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Randomize All</button>
+                <button id="lock-all-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">🔒 Lock All</button>
+                <button id="randomize-all-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Randomize</button>
+                <button id="reset-all-defaults-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">Reset All</button>
+                
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-gray-300">Portamento:</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="portamento-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                
+                <div class="flex flex-col items-center">
+                    <label class="text-xs text-gray-400 mb-1">Port. Time</label>
+                    <div class="knob-control"><div id="portamento-knob" class="knob-input"></div></div>
+                    <div id="portamento-value" class="knob-value">0.10</div>
+                </div>
              </div>
              <div id="editor-grid" class="space-y-6">
              </div>
             <div class="mt-6">
                 <label for="patch-name-input" class="block mb-2 text-sm font-medium text-gray-300">Patch Name & Data</label>
-                <div class="flex space-x-2">
-                    <input id="patch-name-input" type="text" class="w-1/4 p-2 bg-gray-900 border border-gray-600 rounded-md">
+                <div class="flex space-x-2 mb-2">
+                    <input id="patch-name-input" type="text" class="w-1/5 p-2 bg-gray-900 border border-gray-600 rounded-md" placeholder="Patch name...">
                     <input id="patch" type="text" readonly class="flex-grow p-2 bg-gray-900 border border-gray-600 rounded-md font-mono text-xs">
                     <button id="save-patch-btn" title="Save Patch" class="p-2 bg-blue-600 hover:bg-blue-700 rounded-md">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6a1 1 0 10-2 0v5.586L7.707 10.293zM5 4a1 1 0 011-1h8a1 1 0 011 1v1a1 1 0 11-2 0V5H6v1a1 1 0 11-2 0V4z" /><path fill-rule="evenodd" d="M3 9a1 1 0 011-1h12a1 1 0 011 1v7a2 2 0 01-2 2H5a2 2 0 01-2-2V9zm1 0h12v7a1 1 0 01-1 1H5a1 1 0 01-1-1V9z" clip-rule="evenodd" /></svg>
@@ -130,12 +233,47 @@
                     <button id="copy-patch-btn" title="Copy Shareable URL" class="p-2 bg-green-600 hover:bg-green-700 rounded-md">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg>
                     </button>
+                    <button id="reset-patch-btn" title="Reset Patch to Default" class="p-2 bg-red-600 hover:bg-red-700 rounded-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+                <div class="flex space-x-2 mb-2">
+                    <label for="channel-input" class="text-sm font-medium text-gray-300 flex items-center">MIDI Channel:</label>
+                    <select id="channel-input" class="midi-mapping-input bg-gray-700 border border-gray-600 text-white text-sm rounded-lg">
+                        <option value="0">1</option>
+                        <option value="1">2</option>
+                        <option value="2">3</option>
+                        <option value="3">4</option>
+                        <option value="4">5</option>
+                        <option value="5">6</option>
+                        <option value="6">7</option>
+                        <option value="7">8</option>
+                        <option value="8">9</option>
+                        <option value="9" disabled style="color: #666;">10 (Drums)</option>
+                        <option value="10">11</option>
+                        <option value="11">12</option>
+                        <option value="12">13</option>
+                        <option value="13">14</option>
+                        <option value="14">15</option>
+                        <option value="15">16</option>
+                    </select>
+                    <span class="text-xs text-gray-400 flex items-center">Assign this patch to a MIDI channel</span>
+                </div>
+                <div class="flex space-x-2">
+                    <label for="drum-mapping-input" class="text-sm font-medium text-gray-300 flex items-center">MIDI Note:</label>
+                    <input id="drum-mapping-input" type="number" min="0" max="127" class="midi-mapping-input" placeholder="None">
+                    <span class="text-xs text-gray-400 flex items-center">Map this patch to a MIDI note (0-127)</span>
                 </div>
             </div>
         </div>
 
         <footer class="text-center mt-8 text-gray-500 text-sm">
-            <p>Play with your computer keyboard (A, W, S, E, D, F, T, G, Y, H, U, J, K)</p>
+            <p>Play with your computer keyboard (A, W, S, E, D, F, T, G, Y, H, U, J, K) or connect a MIDI device</p>
+            <p class="text-teal-400 mt-1">💡 Hold notes while adjusting ANY parameter for real-time sound editing - even frequency changes!</p>
+            <p class="text-yellow-400 mt-1">⌨️ Click knob values: ↑↓ arrows adjust values, letter keys play notes (Shift for larger steps)</p>
+            <p class="text-purple-400 mt-1">🎛️ MIDI pitch bend wheel controls tuning in real-time (±2 semitones)</p>
+            <p class="text-orange-400 mt-1">🔄 Auto Pan: Continuous stereo panning (audible from 0.1+, slow to fast based on value) + individual Pan controls per oscillator</p>
+            <p class="text-pink-400 mt-1">🎵 Portamento: Smooth pitch slides between notes when enabled - adjust time for slower/faster transitions</p>
         </footer>
     </div>
 
@@ -148,6 +286,12 @@
                 this.masterGain.gain.value = this.volume;
                 this.activeNotes = new Map();
                 this.waveCache = {};
+                this.pitchBend = 1.0; // MIDI pitch bend multiplier (1.0 = no bend)
+                
+                // Portamento settings
+                this.portamentoEnabled = false;
+                this.portamentoTime = 0.1; // Default portamento time in seconds
+                this.lastNoteFrequency = null; // Track last played note for portamento
 
                 // --- Global Effects Chain ---
                 this.distortion = this.audioContext.createWaveShaper();
@@ -156,6 +300,19 @@
                 this.distortionMix = this.audioContext.createGain();
                 this.distortionMix.gain.value = 0; // Wet signal starts at 0
 
+                // Global modulated panner
+                this.globalPanner = this.audioContext.createStereoPanner();
+                this.globalPanner.pan.value = 0.0; // Start at center
+                
+                // Panning LFO for modulated global panning
+                this.panLFO = this.audioContext.createOscillator();
+                this.panLFOGain = this.audioContext.createGain();
+                this.panLFO.frequency.value = 0.5; // Start at audible frequency
+                this.panLFOGain.gain.value = 0.0; // No modulation by default
+                this.panLFO.connect(this.panLFOGain);
+                this.panLFOGain.connect(this.globalPanner.pan);
+                this.panLFO.start();
+
                 this.delay = this.audioContext.createDelay(1.0);
                 this.delayFeedback = this.audioContext.createGain();
                 this.delayFeedback.gain.value = 0;
@@ -163,7 +320,7 @@
 
                 this.convolver = this.audioContext.createConvolver();
                 this.reverbGain = this.audioContext.createGain();
-                this.reverbGain.gain.value = 0.3;
+                this.reverbGain.gain.value = 0.0; // Start with no reverb
                 this.convolver.buffer = this._createReverbImpulse();
 
                 this.modLFO = this.audioContext.createOscillator();
@@ -173,30 +330,114 @@
                 this.modLFO.connect(this.modLFOGain);
                 this.modLFO.start();
 
-                // Routing
-                this.masterGain.connect(this.distortion); // Signal to distortion
+                // Routing - effects are connected conditionally
+                this.masterGain.connect(this.globalPanner);
+                this.globalPanner.connect(this.distortion);
                 this.distortion.connect(this.distortionGain);
                 this.distortionGain.connect(this.distortionMix);
-                this.distortionMix.connect(this.audioContext.destination); // Wet distortion to output
+                this.distortionMix.connect(this.audioContext.destination);
 
-                this.masterGain.connect(this.delay);
+                // Delay feedback loop (but not connected to output by default)
                 this.delay.connect(this.delayFeedback);
                 this.delayFeedback.connect(this.delay);
-                this.delay.connect(this.audioContext.destination);
                 
-                this.masterGain.connect(this.reverbGain);
+                // Reverb chain (but not connected by default)
                 this.reverbGain.connect(this.convolver);
-                this.convolver.connect(this.audioContext.destination);
                 
-                this.masterGain.connect(this.audioContext.destination); // Master Dry signal
+                // Master dry signal - always connected (through global panner)
+                this.globalPanner.connect(this.audioContext.destination);
+                
+                // Track effect connection states
+                this.delayConnected = false;
+                this.reverbConnected = false;
 
                 this._createNoiseBuffers();
             }
 
             setVolume(level) { this.masterGain.gain.value = level; }
-            setReverb(level) { this.reverbGain.gain.value = level; }
+            
+            setPortamento(enabled, time) {
+                this.portamentoEnabled = enabled;
+                this.portamentoTime = time;
+            }
+            
+            setPanner(depth) {
+                // Set the depth of the panning LFO modulation
+                // 0 = no panning movement, 1 = full left-right sweep
+                // Always use full gain for the LFO, but scale frequency for speed
+                this.panLFOGain.gain.value = depth > 0 ? 1 : 0;
+                
+                // Update panning frequency based on depth
+                // Low depth (0.1) = slow (0.5 Hz), High depth (1.0) = fast (8 Hz)
+                if (depth > 0) {
+                    // Linear mapping with minimum audible frequency
+                    // At depth 0.1: 0.5 Hz (clearly audible slow sweep)
+                    // At depth 1.0: 8 Hz (fast panning)
+                    const minFreq = 0.5;  // Increased minimum for audibility
+                    const maxFreq = 8;    // Reduced maximum to stay musical
+                    const frequency = minFreq + (depth * (maxFreq - minFreq));
+                    this.panLFO.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+                } else {
+                    // Reset frequency when depth is 0
+                    this.panLFO.frequency.setValueAtTime(0.5, this.audioContext.currentTime);
+                }
+            }
+            
+            setPitchBend(value) {
+                // Convert 14-bit MIDI pitch bend (0-16383) to multiplier
+                // 8192 = center, ±2 semitones range
+                const normalizedBend = (value - 8192) / 8192; // -1 to +1
+                this.pitchBend = Math.pow(2, normalizedBend * 2 / 12); // ±2 semitones
+                
+                // Update all active notes immediately
+                this.activeNotes.forEach((noteContext) => {
+                    noteContext.nodes.forEach((nodeData) => {
+                        const { osc } = nodeData;
+                        const now = this.audioContext.currentTime;
+                        
+                        if (osc.frequency && nodeData.midiNoteFreq) {
+                            const newFreq = nodeData.midiNoteFreq * nodeData.p.tuning * this.pitchBend + nodeData.p.frequency;
+                            osc.frequency.setValueAtTime(newFreq, now);
+                        } else if (osc.playbackRate && nodeData.midiNoteFreq) {
+                            const newRate = (nodeData.midiNoteFreq * nodeData.p.tuning * this.pitchBend + nodeData.p.frequency) / 440;
+                            osc.playbackRate.setValueAtTime(Math.max(0.1, newRate), now);
+                        }
+                    });
+                });
+            }
+            
+            setReverb(level) { 
+                this.reverbGain.gain.value = level;
+                if (level > 0 && !this.reverbConnected) {
+                    this.globalPanner.connect(this.reverbGain);
+                    this.convolver.connect(this.audioContext.destination);
+                    this.reverbConnected = true;
+                } else if (level === 0 && this.reverbConnected) {
+                    try {
+                        this.globalPanner.disconnect(this.reverbGain);
+                        this.convolver.disconnect(this.audioContext.destination);
+                    } catch (e) {}
+                    this.reverbConnected = false;
+                }
+            }
+            
             setVibrato(depth) { this.modLFOGain.gain.value = depth; }
-            setEcho(feedback) { this.delayFeedback.gain.value = feedback; }
+            
+            setEcho(feedback) { 
+                this.delayFeedback.gain.value = feedback;
+                if (feedback > 0 && !this.delayConnected) {
+                    this.globalPanner.connect(this.delay);
+                    this.delay.connect(this.audioContext.destination);
+                    this.delayConnected = true;
+                } else if (feedback === 0 && this.delayConnected) {
+                    try {
+                        this.globalPanner.disconnect(this.delay);
+                        this.delay.disconnect(this.audioContext.destination);
+                    } catch (e) {}
+                    this.delayConnected = false;
+                }
+            }
+            
             setDistortion(amount) {
                 const drive = amount * 50; 
                 this.distortion.curve = this._createDistortionCurve(drive);
@@ -231,20 +472,12 @@
             _createNoiseBuffers() {
                 const bufferSize = this.audioContext.sampleRate * 2;
                 this.noiseBuffers = {};
-                const n0Buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
-                const n0Data = n0Buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) n0Data[i] = Math.random() * 2 - 1;
-                this.noiseBuffers['n0'] = n0Buffer;
-                const n1Buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
-                const n1Data = n1Buffer.getChannelData(0);
-                let lastOut = 0;
+                const noiseBuffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+                const noiseData = noiseBuffer.getChannelData(0);
                 for (let i = 0; i < bufferSize; i++) {
-                     const white = Math.random() * 2 - 1;
-                     n1Data[i] = (lastOut + (0.02 * white)) / 1.02;
-                     lastOut = n1Data[i];
-                     n1Data[i] *= 3.5;
+                    noiseData[i] = Math.random() * 2 - 1;
                 }
-                this.noiseBuffers['n1'] = n1Buffer;
+                this.noiseBuffers['noise'] = noiseBuffer;
             }
 
             _getPeriodicWave(name) {
@@ -256,46 +489,53 @@
                 return wave;
             }
 
-            noteOn(noteNumber, velocity, timbre) {
+            noteOn(noteNumber, velocity, oscillators, fx = {R:0.3, V:0, E:0, D:0, P:0}) {
                 if (this.audioContext.state === 'suspended') this.audioContext.resume();
                 const noteId = noteNumber;
                 if (this.activeNotes.has(noteId)) this.noteOff(noteId);
 
                 const baseFreq = 440 * Math.pow(2, (noteNumber - 69) / 12);
                 const now = this.audioContext.currentTime;
-                const noteContext = { nodes: [], timbre: timbre };
+                const noteContext = { nodes: [], oscillators: oscillators };
 
-                timbre.forEach(oscDef => {
+                oscillators.forEach((oscDef, index) => {
                     const p = this._createParamDefaults(oscDef);
                     const oscNode = this._createOscillatorNode(p);
                     if (oscNode.detune) this.modLFOGain.connect(oscNode.detune);
                     
                     let currentNode = oscNode;
-                    const nodes = { osc: oscNode };
+                    const nodes = { 
+                        osc: oscNode, 
+                        index: index, 
+                        filter: null,
+                        midiNoteFreq: baseFreq,  // FIXED: Store this BEFORE adding to array
+                        baseFrequency: 0         // Will be set below
+                    };
 
-                    if (p.sCurve > 0.01) {
+                    if (p.shapeCurve > 0.01) {
                         const shaper = this.audioContext.createWaveShaper();
                         const curve = new Float32Array(256);
                         for(let i=0; i<256; ++i) {
                             const x = i * 2 / 255 - 1;
-                            curve[i] = Math.sign(x) * Math.pow(Math.abs(x), p.sCurve);
+                            curve[i] = Math.sign(x) * Math.pow(Math.abs(x), p.shapeCurve);
                         }
                         shaper.curve = curve;
                         currentNode.connect(shaper);
                         currentNode = shaper;
                     }
 
-                    if (p.filter !== 'off') {
+                    if (p.filterType !== 'off') {
                         const filter = this.audioContext.createBiquadFilter();
-                        filter.type = p.filter;
-                        filter.frequency.value = p.fFreq;
-                        filter.Q.value = p.fQ;
+                        filter.type = p.filterType;
+                        filter.frequency.value = p.filterFrequency;
+                        filter.Q.value = p.filterQ;
+                        nodes.filter = filter; // Store filter reference for modulation
                         currentNode.connect(filter);
                         currentNode = filter;
                     }
                     
-                    if (p.crush > 0) {
-                        const crushSteps = Math.pow(2, 8 - p.crush);
+                    if (p.bitCrush > 0) {
+                        const crushSteps = Math.pow(2, 8 - p.bitCrush);
                         const crushCurve = new Float32Array(256);
                         for(let i=0; i<256; i++) {
                             const x = i * 2 / 255 - 1;
@@ -308,14 +548,27 @@
                     }
 
                     const gainNode = this.audioContext.createGain();
-                    currentNode.connect(gainNode);
+                    
+                    // Individual panner for this oscillator
+                    const oscPanner = this.audioContext.createStereoPanner();
+                    oscPanner.pan.value = p.panPosition || 0; // Use oscillator's pan setting
+                    
+                    currentNode.connect(oscPanner);
+                    oscPanner.connect(gainNode);
                     nodes.gain = gainNode;
+                    nodes.panner = oscPanner;
 
-                    if (p.tremolo > 0) {
+                    // Create FM modulation gain for this oscillator (for when it's used as a modulator)
+                    const fmGain = this.audioContext.createGain();
+                    fmGain.gain.value = p.fmAmount || 0; // Default FM amount to 0
+                    gainNode.connect(fmGain);
+                    nodes.fmGain = fmGain;
+
+                    if (p.tremoloAmount > 0) {
                         const tremoloLFO = this.audioContext.createOscillator();
                         tremoloLFO.frequency.value = 5;
                         const tremoloGain = this.audioContext.createGain();
-                        tremoloGain.gain.value = p.tremolo;
+                        tremoloGain.gain.value = p.tremoloAmount;
                         tremoloLFO.connect(tremoloGain);
                         tremoloGain.connect(gainNode.gain);
                         tremoloLFO.start(now);
@@ -325,35 +578,90 @@
                     noteContext.nodes.push({ p, ...nodes });
                     
                     const freqParam = oscNode.frequency || oscNode.playbackRate;
-                    const calculatedFreq = baseFreq * p.t + p.f;
-                    freqParam.setValueAtTime(calculatedFreq, now);
-                    if (p.slide !== 0) freqParam.linearRampToValueAtTime(calculatedFreq + p.slide, now + p.a + p.d);
-                    if (p.dSlide !== 0) freqParam.setTargetAtTime(calculatedFreq + p.slide + p.dSlide, now + p.a + p.d, 0.1);
+                    const targetFreq = baseFreq * p.tuning * this.pitchBend + p.frequency;
+                    
+                    // Implement portamento
+                    if (this.portamentoEnabled && this.lastNoteFrequency !== null) {
+                        // Start from last note frequency and slide to target
+                        const startFreq = this.lastNoteFrequency * p.tuning * this.pitchBend + p.frequency;
+                        freqParam.setValueAtTime(startFreq, now);
+                        freqParam.exponentialRampToValueAtTime(targetFreq, now + this.portamentoTime);
+                    } else {
+                        // No portamento, jump directly to target frequency
+                        freqParam.setValueAtTime(targetFreq, now);
+                    }
+                    
+                    // Store frequencies for real-time updates
+                    nodes.baseFrequency = targetFreq;
+                    // midiNoteFreq already set above
+                    
+                    if (p.pitchSlide !== 0) freqParam.linearRampToValueAtTime(targetFreq + p.pitchSlide, now + p.envelope.attack + p.envelope.decay + (this.portamentoEnabled ? this.portamentoTime : 0));
+                    if (p.deltaSlide !== 0) freqParam.setTargetAtTime(targetFreq + p.pitchSlide + p.deltaSlide, now + p.envelope.attack + p.envelope.decay + (this.portamentoEnabled ? this.portamentoTime : 0), 0.1);
 
                     const velFactor = velocity / 127;
-                    const keyTrackFactor = Math.pow(2, (noteNumber - 60) / 12 * p.k);
-                    const finalVolume = p.v * velFactor * keyTrackFactor;
+                    const keyTrackFactor = Math.pow(2, (noteNumber - 60) / 12 * p.keyTracking);
+                    const finalVolume = p.volume * velFactor * keyTrackFactor;
                     const gainParam = gainNode.gain;
                     gainParam.setValueAtTime(0, now);
-                    gainParam.linearRampToValueAtTime(finalVolume, now + p.a);
-                    gainParam.setValueAtTime(finalVolume, now + p.a + p.h);
-                    if (p.d > 0) gainParam.linearRampToValueAtTime(p.s * finalVolume, now + p.a + p.h + p.d);
+                    gainParam.linearRampToValueAtTime(finalVolume, now + p.envelope.attack);
+                    gainParam.setValueAtTime(finalVolume, now + p.envelope.attack + p.envelope.hold);
+                    if (p.envelope.decay > 0) gainParam.linearRampToValueAtTime(p.envelope.sustain * finalVolume, now + p.envelope.attack + p.envelope.hold + p.envelope.decay);
                     
                     oscNode.start(now);
                 });
 
+                // Store the current note frequency for next portamento
+                this.lastNoteFrequency = baseFreq;
+
+                // FIXED: Set up FM routing properly with modulation targets
                 noteContext.nodes.forEach((oscData) => {
-                    const { p, gain } = oscData;
-                    const destination = p.g;
+                    const { p, gain, fmGain, osc, filter } = oscData;
+                    const destination = p.routing;
+                    
                     if (destination === 0) {
+                        // Route to output
                         gain.connect(this.masterGain);
                     } else if (destination > 0 && destination <= noteContext.nodes.length) {
-                        const targetOsc = noteContext.nodes[destination - 1].osc;
-                        if (targetOsc.frequency) {
-                            gain.connect(targetOsc.frequency);
+                        // Route for modulation
+                        const targetOsc = noteContext.nodes[destination - 1];
+                        if (targetOsc) {
+                            const modDepth = p.fmAmount || 100; // Default modulation depth
+                            fmGain.gain.value = modDepth;
+                            
+                            // Route to different parameters based on modTarget
+                            switch (p.modTarget || 'frequency') {
+                                case 'frequency':
+                                    if (targetOsc.osc.frequency) {
+                                        fmGain.connect(targetOsc.osc.frequency);
+                                    }
+                                    break;
+                                case 'filterFreq':
+                                    if (targetOsc.filter && targetOsc.filter.frequency) {
+                                        fmGain.connect(targetOsc.filter.frequency);
+                                    }
+                                    break;
+                                case 'filterQ':
+                                    if (targetOsc.filter && targetOsc.filter.Q) {
+                                        // Limit Q modulation to prevent instability
+                                        const qLimiter = this.audioContext.createGain();
+                                        qLimiter.gain.value = 0.1; // Much smaller modulation for Q
+                                        fmGain.connect(qLimiter);
+                                        qLimiter.connect(targetOsc.filter.Q);
+                                    }
+                                    break;
+                                case 'volume':
+                                    if (targetOsc.gain && targetOsc.gain.gain) {
+                                        const volumeLimiter = this.audioContext.createGain();
+                                        volumeLimiter.gain.value = 0.01; // Small modulation for volume
+                                        fmGain.connect(volumeLimiter);
+                                        volumeLimiter.connect(targetOsc.gain.gain);
+                                    }
+                                    break;
+                            }
                         }
                     }
                 });
+                
                 this.activeNotes.set(noteId, noteContext);
                 
                 const [color1, color2] = this._frequencyToColor(baseFreq);
@@ -367,37 +675,136 @@
                 if (!noteContext) return;
                 const now = this.audioContext.currentTime;
                 noteContext.nodes.forEach(({ p, osc, gain, tremoloLFO }) => {
-                    const releaseTime = now + p.r;
+                    const releaseTime = now + p.envelope.release;
                     gain.gain.cancelScheduledValues(now);
                     gain.gain.setValueAtTime(gain.gain.value, now);
-                    if (p.r > 0) gain.gain.linearRampToValueAtTime(0, releaseTime);
+                    if (p.envelope.release > 0) gain.gain.linearRampToValueAtTime(0, releaseTime);
                     osc.stop(releaseTime + 0.1);
                     if (tremoloLFO) tremoloLFO.stop(releaseTime + 0.1);
                 });
                 this.activeNotes.delete(noteNumber);
+                
+                // Reset portamento tracking if no notes are playing
+                if (this.activeNotes.size === 0) {
+                    this.lastNoteFrequency = null;
+                }
+            }
+
+            // Update active notes with new parameters in real-time
+            updateActiveNotes(newOscillators) {
+                if (this.activeNotes.size === 0) return;
+                
+                this.activeNotes.forEach((noteContext, noteNumber) => {
+                    noteContext.nodes.forEach((nodeData, index) => {
+                        if (index >= newOscillators.length) return;
+                        
+                        const newParams = this._createParamDefaults(newOscillators[index]);
+                        const { osc, gain, filter, fmGain, tremoloLFO, panner } = nodeData;
+                        const now = this.audioContext.currentTime;
+                        
+                        // Update frequency and tuning
+                        if (osc.frequency && nodeData.midiNoteFreq) {
+                            const newFreq = nodeData.midiNoteFreq * newParams.tuning * this.pitchBend + newParams.frequency;
+                            osc.frequency.setValueAtTime(newFreq, now);
+                            nodeData.baseFrequency = newFreq;
+                        } else if (osc.playbackRate && nodeData.midiNoteFreq) {
+                            const newRate = (nodeData.midiNoteFreq * newParams.tuning * this.pitchBend + newParams.frequency) / 440;
+                            osc.playbackRate.setValueAtTime(Math.max(0.1, newRate), now);
+                        }
+                        
+                        // Update filter parameters
+                        if (filter && newParams.filterType !== 'off') {
+                            try {
+                                filter.frequency.setValueAtTime(Math.max(20, Math.min(20000, newParams.filterFrequency)), now);
+                                filter.Q.setValueAtTime(Math.max(0.01, Math.min(20, newParams.filterQ)), now);
+                            } catch (e) {}
+                        }
+                        
+                        // Update volume (preserve envelope state)
+                        if (gain && gain.gain && nodeData.p.volume > 0) {
+                            const currentGain = gain.gain.value;
+                            const ratio = currentGain / nodeData.p.volume;
+                            const newVolume = newParams.volume * ratio;
+                            gain.gain.setValueAtTime(Math.max(0, newVolume), now);
+                        }
+                        
+                        // Update FM modulation amount
+                        if (fmGain) {
+                            fmGain.gain.setValueAtTime(newParams.fmAmount || 0, now);
+                        }
+                        
+                        // Update individual oscillator panning
+                        if (panner) {
+                            panner.pan.setValueAtTime(Math.max(-1, Math.min(1, newParams.panPosition || 0.0)), now);
+                        }
+                        
+                        // Update tremolo amount (if tremolo LFO exists)
+                        if (tremoloLFO && tremoloLFO.connect) {
+                            // Tremolo amount changes require reconnection, skip for performance
+                        }
+                        
+                        // Store updated parameters
+                        nodeData.p = newParams;
+                    });
+                });
             }
             
             _createOscillatorNode(p) {
-                 const node = p.w.startsWith('n') ? this.audioContext.createBufferSource() : this.audioContext.createOscillator();
-                 if (node.buffer) {
-                     node.buffer = this.noiseBuffers[p.w];
+                 const node = p.waveform === 'noise' ? this.audioContext.createBufferSource() : this.audioContext.createOscillator();
+                 if (p.waveform === 'noise') {
+                     // Fixed: Properly set buffer for noise oscillators
+                     node.buffer = this.noiseBuffers['noise'];
                      node.loop = true;
                  } else {
-                     if (p.w.startsWith('w')) node.setPeriodicWave(this._getPeriodicWave(p.w));
-                     else node.type = p.w;
+                     if (p.waveform === 'harmonic') node.setPeriodicWave(this._getPeriodicWave('harmonic'));
+                     else node.type = p.waveform;
                  }
                  return node;
             }
 
             _createParamDefaults(params) {
                 const defaults = { 
-                    g: 0, w: 'sine', v: 0.5, t: 1, f: 0, 
-                    a: 0.01, h: 0, d: 0.01, s: 0, r: 0.1, 
-                    p: 1, q: 0.01, k: 0,
-                    slide: 0, dSlide: 0, sCurve: 0, crush: 0,
-                    filter: 'off', fFreq: 1000, fQ: 1, tremolo: 0
+                    routing: 0, waveform: 'sine', volume: 0.5, tuning: 1, frequency: 0,
+                    envelope: { attack: 0.01, hold: 0, decay: 0.01, sustain: 0, release: 0.1 },
+                    pitchBend: 1, bendSpeed: 0.01, keyTracking: 0,
+                    pitchSlide: 0, deltaSlide: 0, shapeCurve: 0, bitCrush: 0,
+                    filterType: 'off', filterFrequency: 1000, filterQ: 1, tremoloAmount: 0,
+                    fmAmount: 100, // Default FM modulation depth
+                    panPosition: 0.0 // Default center pan for individual oscillators
                 };
-                return { ...defaults, ...params };
+                const merged = { ...defaults, ...params };
+                
+                // Handle ADSR migration from old format
+                if (params.a !== undefined || params.d !== undefined || params.s !== undefined || params.r !== undefined) {
+                    merged.envelope = {
+                        attack: params.a !== undefined ? params.a : defaults.envelope.attack,
+                        hold: params.h !== undefined ? params.h : defaults.envelope.hold,
+                        decay: params.d !== undefined ? params.d : defaults.envelope.decay,
+                        sustain: params.s !== undefined ? params.s : defaults.envelope.sustain,
+                        release: params.r !== undefined ? params.r : defaults.envelope.release
+                    };
+                }
+                
+                // Handle old short parameter names
+                if (params.g !== undefined) merged.routing = params.g;
+                if (params.w !== undefined) merged.waveform = params.w;
+                if (params.v !== undefined) merged.volume = params.v;
+                if (params.t !== undefined) merged.tuning = params.t;
+                if (params.f !== undefined) merged.frequency = params.f;
+                if (params.k !== undefined) merged.keyTracking = params.k;
+                if (params.slide !== undefined) merged.pitchSlide = params.slide;
+                if (params.dSlide !== undefined) merged.deltaSlide = params.dSlide;
+                if (params.sCurve !== undefined) merged.shapeCurve = params.sCurve;
+                if (params.crush !== undefined) merged.bitCrush = params.crush;
+                if (params.filter !== undefined) merged.filterType = params.filter;
+                if (params.fFreq !== undefined) merged.filterFrequency = params.fFreq;
+                if (params.fQ !== undefined) merged.filterQ = params.fQ;
+                if (params.tremolo !== undefined) merged.tremoloAmount = params.tremolo;
+                if (params.fm !== undefined) merged.fmAmount = params.fm;
+                if (params.modTarget !== undefined) merged.modTarget = params.modTarget;
+                if (params.pan !== undefined) merged.panPosition = params.pan;
+                
+                return merged;
             }
 
             _frequencyToColor(freq) {
@@ -409,6 +816,10 @@
             }
         }
 
+        // --- MIDI Support (Global variables) ---
+        var midiPort = [];
+        var currentPort = -1;
+
         // --- UI and Application Logic ---
         document.addEventListener('DOMContentLoaded', () => {
             const synth = new Synthereal();
@@ -419,86 +830,531 @@
             const patchNameInput = document.getElementById('patch-name-input');
             const testNoteBtn = document.getElementById('test-note-btn');
             const randomizeAllBtn = document.getElementById('randomize-all-btn');
+            const lockAllBtn = document.getElementById('lock-all-btn');
             const savePatchBtn = document.getElementById('save-patch-btn');
             const copyPatchBtn = document.getElementById('copy-patch-btn');
+            const resetPatchBtn = document.getElementById('reset-patch-btn');
+            const resetAllDefaultsBtn = document.getElementById('reset-all-defaults-btn');
+            const drumMappingInput = document.getElementById('drum-mapping-input');
+            const channelInput = document.getElementById('channel-input');
+            const portamentoToggle = document.getElementById('portamento-toggle');
+            const portamentoKnob = document.getElementById('portamento-knob');
 
-            let defaultTimbres = {
-                "Crystal Piano": {fx:{R:0.4,V:5,E:0.2,D:0},o:[{w:"sine",v:.4,d:0.7,r:0.2},{w:"sine",v:8,d:0.5,s:0.1,g:1,a:0.01,k:-1.2, t: 4}]},
-                "Starlight Bells": {fx:{R:0.6,V:2,E:0.4,D:0},o:[{w:"triangle",v:0.4,d:0.9,r:0.9,},{w:"sine",v:2,t:6,d:0.6,s:0.1,g:1,k:-1,a:0.01,}]},
-                "Nebula Rhodes": {fx:{R:0.5,V:15,E:0.3,D:0},o:[{w:"sine",d:1.5,r:0.5, i: 'lowpass', j: 1500, u: 2},{w:"triangle",v:4,f:2,d:1.5,s:0.5,g:1,k:-1}]},
-                "Gilded Harpsichord": {fx:{R:0.2,V:0,E:0,D:0},o:[{w:"sawtooth",v:0.4,d:1.5, r: 1.5, b: 1},{w:"sine",v:8,f:0.1,d:2,s:1,r:2,g:1,}]},
-                "Funk Clav from Mars": {fx:{R:0.1,V:0,E:0.2,D:0.1},o:[{w:"square",v:0.4,d:0.2, r:0.2, i: 'bandpass', j: 2000, u: 5},{w:"square",v:6,f:0.1,d:0.1,s:0.5,r:0.1,g:1,}]},
-                "Spaceman's Lullaby": {fx:{R:0.7,V:8,E:0.5,D:0},o:[{w:"sine",v:0.2,d:1.5,r:1.5,},{w:"sine",v:11,t:5,d:1,s:0.4,g:1, o: 0.2}]},
-                "Glass Mallets": {fx:{R:0.4,V:0,E:0.3,D:0},o:[{w:"sine",v:0.2,d:0.8,r:0.8,},{w:"triangle",v:11,t:4,f:1,s:0.5,g:1,}]},
-                "Cosmic Cathedral": {fx:{R:0.8,V:0,E:0,D:0},o:[{w:"w9999",v:0.2,d:0.1,s:0.9, a: 0.1, r: 2},{w:"w9999",v:0.25,t:4,f:2,s:0.5, a: 0.1, r: 2}]},
-                "Void Ripper Guitar": {fx:{R:0.2,V:0,E:0.1,D:0.8},o:[{w:"sawtooth",v:0.4,d:1,f:1,c:3.5, i: 'lowpass', j: 4000, u: 2},{w:"square",v:7,f:-1,d:0.3,s:0.5,g:1,}]},
-                "Solar Flare Strings": {fx:{R:0.6,V:10,E:0,D:0},o:[{w:"sawtooth",v:0.4,a:0.8,d:11, l: 50},{w:"sine",v:5,d:11,s:0.2,g:1,}]},
-                "Supernova Blast": {fx:{R:0.5,V:0,E:0.5,D:0.2},o:[{w:"n0",v:0.8,a:0.01,d:1.5,r:1.5, i: 'highpass', j: 1000},{w:"sawtooth",v:4,f:0.5,d:1,r:11,a:0.01,g:1,h:0.02,},{w:"square",v:0.15,t:4,f:1,a:0.02,d:0.15,r:0.15,h:0.03,},{g:3,w:"square",v:4,f:-0.5,a:0.01,h:0.02,d:0.15,r:11,}]},
-                "Andromeda Strings": {fx:{R:0.7,V:12,E:0,D:0},o:[{w:"sawtooth",v:0.3,a:0.5,s:0.5, r: 1.5, i: 'lowpass', j: 5000, u: 1.2},{w:"sawtooth",v:0.2,t:2,f:2,d:1,s:2, a: 0.5, r: 1.5}]},
-                "Celestial Choir": {fx:{R:0.8,V:8,E:0,D:0},o:[{w:"triangle",v:0.3,a:0.6,s:1, r: 1.2},{w:"sine",v:3,t:5,f:1,d:1,s:1,g:1,}]},
-                "Sub-Frequency Worm": {fx:{R:0.1,V:0,E:0,D:0.1},o:[{w:"triangle",d:0.7, i: 'lowpass', j: 200, u: 10},{w:"square",v:0.4,t:0.5,f:1,d:0.2,s:10,g:1,}]},
-                "Dreamwave Keys": {fx:{R:0.6,V:10,E:0.4,D:0},o:[{w:"sine",v:0.35,d:1.5, r: 1.5},{w:"sine",v:8,t:7.05,f:1,d:1,s:1,g:1,k:-.7}]},
-                "Laser Lead": {fx:{R:0.1,V:0,E:0.2,D:0},o:[{w:"sawtooth",v:0.3,d:0.2,s:0.5, r: 0.2, l: -200},{w:"square",v:2,f:0.1,s:0.5,g:1,}]},
-                "Floating City Pad": {fx:{R:0.8,V:5,E:0,D:0},o:[{w:"triangle",v:0.3,a:1.2,d:0.3,s:0.3,r:1.5,},{w:"square",v:3,t:4,f:1,a:1.2,d:0.1,s:1,g:1,},{w:"triangle",v:0.08,t:0.5,a:1.5,h:0,d:0.1,s:0.5,r:2}]},
-                "Event Horizon Pad": {fx:{R:0.9,V:2,E:0,D:0},o:[{w:"triangle",v:0.3,a:2,d:11,r:2, i: 'lowpass', j: 8000, u: 1},{w:"sawtooth",v:1,d:1,s:8,g:1, t: 1.01}]},
-                "Alien Chatter":{fx:{R:0.3,V:0,E:0.6,D:0},o:[{w:"square",v:0.3,a:0.1,d:0.1,s:0.4, o: 0.8},{w:"square",v:1,f:1,d:0.3,s:0.1,g:1, t: 5.3}]},
-                "Whispering Wind": {fx:{R:0.5,V:0,E:0,D:0},o:[{w:"n0",v:0.7,a:1.5,d:2, r: 1.5, i: 'bandpass', j: 2000, u: 5},{w:"sine",v:1,t:2,f:1,d:0.02,g:1,}]},
-                "Pixel Dust Bomb": {fx:{R:0.2,V:0,E:0.1,D:0},o:[{w:"n0", v:1, a:0.01, d:0.4, r:0.4, p:0.2, q:0.01, b: 4}]}
-            };
-            let timbres = { ...defaultTimbres };
+            // Initialize MIDI
+            initMidi();
+            document.getElementById('midiport').addEventListener('change', function() {
+                SelectMidi(this.selectedIndex - 1);
+            });
 
-            const longToShort = {
-                g: 'g', w: 'w', v: 'v', t: 't', f: 'f', a: 'a', h: 'h', d: 'd', s: 's', r: 'r', p: 'p', q: 'q', k: 'k',
-                slide: 'l', dSlide: 'm', sCurve: 'c', crush: 'b', tremolo: 'o',
-                filter: 'i', fFreq: 'j', fQ: 'u'
+            // Parameter definitions with long names for code readability
+            const PARAMETER_DEFINITIONS = {
+                // Oscillator routing
+                g: { longName: 'routing', min: 0, max: 4, step: 1, name: 'Route' },
+                // Waveform selection 
+                w: { longName: 'waveform', type: 'select', options: ['sine', 'square', 'sawtooth', 'triangle', 'noise', 'harmonic'], name: 'Wave' },
+                // Basic parameters
+                v: { longName: 'volume', min: 0, max: 20, step: 0.01, name: 'Volume' },
+                t: { longName: 'tuning', min: 0, max: 10, step: 0.01, name: 'Tune' },
+                f: { longName: 'frequency', min: 0, max: 2000, step: 1, name: 'Freq' },
+                // ADSR envelope parameters
+                a: { longName: 'envelopeAttack', min: 0, max: 2, step: 0.01, name: 'Attack' },
+                h: { longName: 'envelopeHold', min: 0, max: 2, step: 0.01, name: 'Hold' },
+                d: { longName: 'envelopeDecay', min: 0, max: 2, step: 0.01, name: 'Decay' },
+                s: { longName: 'envelopeSustain', min: 0, max: 1, step: 0.01, name: 'Sustain' },
+                r: { longName: 'envelopeRelease', min: 0, max: 2, step: 0.01, name: 'Release' },
+                // Modulation parameters
+                k: { longName: 'keyTracking', min: -4, max: 4, step: 0.01, name: 'Key Track' },
+                slide: { longName: 'pitchSlide', min: -1000, max: 1000, step: 1, name: 'Slide' },
+                dSlide: { longName: 'deltaSlide', min: -1000, max: 1000, step: 1, name: 'Delta Slide' },
+                // Audio processing parameters
+                sCurve: { longName: 'shapeCurve', min: 0, max: 5, step: 0.01, name: 'Shape Curve' },
+                crush: { longName: 'bitCrush', min: 0, max: 8, step: 1, name: 'BitCrush' },
+                tremolo: { longName: 'tremoloAmount', min: 0, max: 1, step: 0.01, name: 'Tremolo' },
+                pan: { longName: 'panPosition', min: -1, max: 1, step: 0.01, name: 'Pan' },
+                // NEW: FM modulation amount and target
+                fm: { longName: 'fmAmount', min: 0, max: 1000, step: 1, name: 'FM Amount' },
+                modTarget: { longName: 'modTarget', type: 'select', options: ['frequency', 'filterFreq', 'filterQ', 'volume'], name: 'Mod Target' },
+                // Filter parameters
+                filter: { longName: 'filterType', type: 'select', options: ['off', 'lowpass', 'highpass', 'bandpass', 'notch'], name: 'Filter' },
+                fFreq: { longName: 'filterFrequency', min: 20, max: 20000, step: 1, name: 'Filter Freq' },
+                fQ: { longName: 'filterQ', min: 0.01, max: 20, step: 0.01, name: 'Filter Q (Resonance)' }
             };
-            const shortToLong = Object.fromEntries(Object.entries(longToShort).map(a => a.reverse()));
 
-            const paramDefs = {
-                g: { min: 0, max: 4, step: 1, name: 'Route' }, w: { type: 'select', options: ['sine', 'square', 'sawtooth', 'triangle', 'n0', 'n1', 'w9999'], name: 'Wave' },
-                v: { min: 0, max: 20, step: 0.01, name: 'Volume' }, t: { min: 0, max: 10, step: 0.01, name: 'Tune' },
-                f: { min: 0, max: 2000, step: 1, name: 'Freq' }, a: { min: 0, max: 2, step: 0.01, name: 'Attack' },
-                h: { min: 0, max: 2, step: 0.01, name: 'Hold' }, d: { min: 0, max: 2, step: 0.01, name: 'Decay' },
-                s: { min: 0, max: 1, step: 0.01, name: 'Sustain' }, r: { min: 0, max: 2, step: 0.01, name: 'Release' },
-                p: { min: 0, max: 4, step: 0.01, name: 'Pitch Bend' }, q: { min: 0, max: 2, step: 0.01, name: 'Bend Speed' },
-                k: { min: -4, max: 4, step: 0.01, name: 'Key Track' }, slide: { min: -1000, max: 1000, step: 1, name: 'Slide' },
-                dSlide: { min: -1000, max: 1000, step: 1, name: 'Delta Slide' }, sCurve: { min: 0, max: 5, step: 0.01, name: 'Shape Curve' },
-                crush: { min: 0, max: 8, step: 1, name: 'BitCrush' }, tremolo: { min: 0, max: 1, step: 0.01, name: 'Tremolo' },
-                filter: { type: 'select', options: ['off', 'lowpass', 'highpass', 'bandpass', 'notch'], name: 'Filter' },
-                fFreq: { min: 20, max: 20000, step: 1, name: 'Filter Freq' }, fQ: { min: 0.01, max: 20, step: 0.01, name: 'Filter Q' }
+            // Default patches (updated with Panner values)
+            let defaultPatches = {
+                "Crystal Piano": {
+                    fx: {R:0.4, V:5, E:0, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.4, a:0.01, h:0, d:0.7, s:0, r:0.2},
+                        {w:"sine", v:8, a:0.01, h:0, d:0.5, s:0.1, r:0.2, g:1, k:-1.2, t:4}
+                    ]
+                },
+                "FM Electric Piano": {
+                    fx: {R:0.3, V:3, E:0.1, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.5, a:0.01, h:0, d:0.8, s:0.1, r:0.3},
+                        {w:"sine", v:0.3, t:14, a:0.01, h:0, d:0.2, s:0, r:0.1, g:1, fm:200}
+                    ]
+                },
+                "FM Bass": {
+                    fx: {R:0.1, V:0, E:0, D:0.2, P:0},
+                    o: [
+                        {w:"sine", v:0.8, a:0.01, h:0, d:0.3, s:0.7, r:0.2},
+                        {w:"sine", v:0.4, t:2, a:0.01, h:0, d:0.1, s:0, r:0.1, g:1, fm:300}
+                    ]
+                },
+                "FM Filter Sweep": {
+                    fx: {R:0.3, V:5, E:0.2, D:0, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.6, a:0.01, h:0, d:0.5, s:0.7, r:0.3, filter:'lowpass', fFreq:800, fQ:5},
+                        {w:"sine", v:0.2, t:0.25, a:0.01, h:0, d:0.3, s:0.8, r:0.2, g:1, fm:500, modTarget:'filterFreq'}
+                    ]
+                },
+                "Wobble Bass": {
+                    fx: {R:0.1, V:0, E:0, D:0.3, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.8, a:0.01, h:0, d:0.2, s:0.9, r:0.2, filter:'lowpass', fFreq:400, fQ:8},
+                        {w:"triangle", v:0.1, t:0.125, a:0.01, h:0, d:0.1, s:1, r:0.1, g:1, fm:300, modTarget:'filterFreq'}
+                    ]
+                },
+                "FM Tremolo Pad": {
+                    fx: {R:0.6, V:8, E:0.1, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.5, a:0.8, h:0.2, d:0.5, s:0.8, r:1.5},
+                        {w:"sine", v:0.05, t:0.2, a:0.5, h:0, d:0.2, s:1, r:1, g:1, fm:0.3, modTarget:'volume'}
+                    ]
+                },
+                "FM Resonance Sweep": {
+                    fx: {R:0.3, V:4, E:0.1, D:0, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.5, a:0.01, h:0, d:0.3, s:0.8, r:0.4, filter:'lowpass', fFreq:1000, fQ:2},
+                        {w:"sine", v:0.03, t:0.5, a:0.01, h:0, d:0.2, s:1, r:0.3, g:1, fm:50, modTarget:'filterQ'}
+                    ]
+                },
+                "FM Bell": {
+                    fx: {R:0.7, V:5, E:0.3, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.4, a:0.01, h:0, d:2, s:0, r:2},
+                        {w:"sine", v:0.2, t:3.14, a:0.01, h:0, d:1, s:0, r:1.5, g:1, fm:150}
+                    ]
+                },
+                "Starlight Bells": {
+                    fx: {R:0.6, V:2, E:0.4, D:0, P:0},
+                    o: [
+                        {w:"triangle", v:0.4, a:0.01, h:0, d:0.9, s:0, r:0.9},
+                        {w:"sine", v:2, t:6, a:0.01, h:0, d:0.6, s:0.1, r:0.9, g:1, k:-1}
+                    ]
+                },
+                "Nebula Rhodes": {
+                    fx: {R:0.5, V:15, E:0.3, D:0, P:0},
+                    o: [
+                        {w:"sine", a:0.01, h:0, d:1.5, s:0, r:0.5, filter:'lowpass', fFreq:1500, fQ:2},
+                        {w:"triangle", v:4, f:2, a:0.01, h:0, d:1.5, s:0.5, r:0.5, g:1, k:-1}
+                    ]
+                },
+                "Void Ripper Guitar": {
+                    fx: {R:0.2, V:0, E:0.1, D:0.8, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.4, a:0.01, h:0, d:1, s:0, r:0.2, f:1, sCurve:3.5, filter:'lowpass', fFreq:4000, fQ:2},
+                        {w:"square", v:7, f:-1, a:0.01, h:0, d:0.3, s:0.5, r:0.2, g:1}
+                    ]
+                },
+                "Solar Flare Strings": {
+                    fx: {R:0.6, V:10, E:0, D:0, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.4, a:0.8, h:0, d:11, s:0, r:1.5, slide:50},
+                        {w:"sine", v:5, a:0.8, h:0, d:11, s:0.2, r:1.5, g:1}
+                    ]
+                },
+                "Dreamwave Keys": {
+                    fx: {R:0.6, V:10, E:0.4, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.35, a:0.01, h:0, d:1.5, s:0, r:1.5},
+                        {w:"sine", v:8, t:7.05, f:1, a:0.01, h:0, d:1, s:1, r:1.5, g:1, k:-0.7}
+                    ]
+                },
+                "Plasma Lead": {
+                    fx: {R:0.2, V:8, E:0.3, D:0.4, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.6, a:0.01, h:0, d:0.3, s:0.7, r:0.4, filter:'lowpass', fFreq:2000, fQ:3},
+                        {w:"square", v:3, t:1.01, a:0.01, h:0, d:0.2, s:0.5, r:0.4, g:1}
+                    ]
+                },
+                "Cyber Synth Lead": {
+                    fx: {R:0.1, V:0, E:0.25, D:0.6, P:0},
+                    o: [
+                        {w:"square", v:0.5, a:0.02, h:0, d:0.4, s:0.6, r:0.3, sCurve:2, filter:'lowpass', fFreq:3000, fQ:4},
+                        {w:"sawtooth", v:4, f:7, a:0.02, h:0, d:0.3, s:0.4, r:0.3, g:1}
+                    ]
+                },
+                "Ethereal Pad": {
+                    fx: {R:0.8, V:12, E:0.1, D:0, P:0},
+                    o: [
+                        {w:"sine", v:0.3, a:1.2, h:0.5, d:0.8, s:0.8, r:2.0},
+                        {w:"triangle", v:2, t:2.01, a:1.0, h:0.3, d:1.0, s:0.6, r:1.8, g:1},
+                        {w:"sine", v:1.5, t:0.5, a:1.5, h:0.2, d:0.6, s:0.7, r:2.2, g:1}
+                    ]
+                },
+                "Deep Bass": {
+                    fx: {R:0.1, V:0, E:0, D:0.3, P:0},
+                    o: [
+                        {w:"sine", v:0.8, a:0.01, h:0, d:0.2, s:0.8, r:0.3, filter:'lowpass', fFreq:200, fQ:2},
+                        {w:"square", v:3, t:0.5, a:0.01, h:0, d:0.1, s:0.6, r:0.2, g:1}
+                    ]
+                },
+                "Cosmic Pad": {
+                    fx: {R:0.9, V:20, E:0.2, D:0, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.25, a:2.0, h:1.0, d:1.5, s:0.9, r:3.0, filter:'lowpass', fFreq:800, fQ:1.5},
+                        {w:"triangle", v:1.8, t:3.99, a:1.8, h:0.8, d:1.2, s:0.7, r:2.5, g:1},
+                        {w:"sine", v:1.2, t:1.99, a:2.2, h:0.6, d:1.0, s:0.8, r:2.8, g:1}
+                    ]
+                },
+                "Neon Arp": {
+                    fx: {R:0.3, V:6, E:0.4, D:0.2, P:0},
+                    o: [
+                        {w:"square", v:0.4, a:0.005, h:0, d:0.15, s:0, r:0.1, filter:'highpass', fFreq:500, fQ:2},
+                        {w:"sine", v:5, t:8, a:0.005, h:0, d:0.1, s:0, r:0.08, g:1}
+                    ]
+                },
+                "Retro Synth": {
+                    fx: {R:0.4, V:4, E:0.2, D:0.1, P:0},
+                    o: [
+                        {w:"sawtooth", v:0.5, a:0.02, h:0, d:0.5, s:0.3, r:0.6, filter:'lowpass', fFreq:1200, fQ:2.5},
+                        {w:"square", v:2, t:2, a:0.02, h:0, d:0.4, s:0.2, r:0.5, g:1}
+                    ]
+                },
+                "Galactic Effects": {
+                    fx: {R:0.7, V:15, E:0.6, D:0.4, P:0},
+                    o: [
+                        {w:"noise", v:0.2, a:0.5, h:0.2, d:1.0, s:0.1, r:1.5, filter:'bandpass', fFreq:1000, fQ:10},
+                        {w:"sine", v:8, t:0.25, a:0.3, h:0, d:0.8, s:0.3, r:1.2, g:1, tremolo:0.3}
+                    ]
+                },
+                "Aurora Lead": {
+                    fx: {R:0.3, V:7, E:0.1, D:0.5, P:0},
+                    o: [
+                        {w:"triangle", v:0.7, a:0.01, h:0, d:0.4, s:0.8, r:0.5, filter:'lowpass', fFreq:2500, fQ:3.5},
+                        {w:"sine", v:6, f:12, a:0.01, h:0, d:0.3, s:0.6, r:0.4, g:1}
+                    ]
+                },
+                // Individual drum patches for 1-to-1 MIDI mapping (based on tinysynth approach)
+                "Bass Drum 2": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", t:0, f:80, v:1, a:0, h:0.02, d:0.05, s:0, r:0.01, p:0.1}]
+                },
+                "Bass Drum 1": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", t:0, f:50, v:0.8, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1}]
+                },
+                "Side Stick": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:392, v:0.5, a:0, h:0, d:0.01, s:0, r:0.05, p:0, t:0}]
+                },
+                "Snare Drum 1": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:33, v:1, a:0, h:0, d:0.05, s:0, r:0.01, t:0}]
+                },
+                "Hand Clap": {
+                    "fx":{"R":0.01,"V":0,"E":0,"D":0,"P":0},
+                    "o":[{"g":0,"w":"noise","v":0.7,"t":0,"f":100,"a":0,"h":0.02,"d":0.03,"s":0,"r":0.03,"p":1,"q":0,"k":0,"slide":0,"dSlide":310,"sCurve":0.825,"crush":6,"tremolo":0.01,"filter":"lowpass","fFreq":6495,"fQ":11.5947}]
+                },
+                "Snare Drum 2": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:44, v:0.7, a:0, h:0.02, d:0.02, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Low Floor Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:240, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Closed Hi-Hat": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:440, v:0.2, a:0, h:0, d:0.01, s:0, r:0.01, t:0}]
+                },
+                "High Floor Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:270, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Pedal Hi-Hat": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:440, v:0.2, a:0, h:0, d:0.04, s:0, r:0.04, t:0}]
+                },
+                "Low Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:300, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Open Hi-Hat": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:440, v:0.2, a:0, h:0.02, d:0.1, s:0, r:0.1, t:0}]
+                },
+                "Low-Mid Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:320, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Hi-Mid Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:360, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Crash Cymbal 1": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:150, v:0.2, a:0, h:0.05, d:0.1, s:0, r:0.1, t:0, p:0.1}]
+                },
+                "High Tom": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"triangle", f:400, v:0.9, a:0, h:0.02, d:0.1, s:0, r:0.01, p:0.1, t:0}]
+                },
+                "Ride Cymbal 1": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:150, v:0.2, a:0, h:0.05, d:0.1, s:0, r:0.01, t:0, p:0.1}]
+                },
+                "Chinese Cymbal": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:150, v:0.2, a:0, h:0.05, d:0.1, s:0, r:0.01, t:0, p:0.1}]
+                },
+                "Ride Bell": {
+                    "fx":{"R":0.31,"V":0,"E":0,"D":0,"P":0},
+                    "o":[{"g":0,"w":"noise","v":0.3,"t":1.05,"f":370,"a":0,"h":0,"d":0.1,"s":0,"r":0.1,"p":0.9,"q":0.01,"k":0,"slide":0,"dSlide":0,"sCurve":0,"crush":0,"tremolo":0,"filter":"off","fFreq":1000,"fQ":1},{"g":0,"w":"square","v":0.5,"t":0,"f":2000,"a":0.06,"h":0,"d":0.01,"s":0,"r":0.1,"p":1,"q":0,"k":-0.04,"slide":180,"dSlide":360,"sCurve":0,"crush":0,"tremolo":0,"filter":"off","fFreq":1000,"fQ":1}]
+                },
+                "Tambourine": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:200, v:0.2, a:0, h:0, d:0.05, s:0, r:0.01, p:0.9, t:0}]
+                },
+                "Splash Cymbal": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:440, v:0.3, a:0, h:0, d:0.12, s:0, r:0.1, p:0.9, t:0}]
+                },
+                "Cowbell": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"sine", f:800, v:0.4, a:0, h:0, d:0.06, s:0, r:0.01, t:0}]
+                },
+                "Crash Cymbal 2": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:150, v:0.2, a:0, h:0.05, d:0.1, s:0, r:0.01, t:0, p:0.1}]
+                },
+                "Vibraslap": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:33, v:0.3, a:0, h:0, d:0.2, s:0, r:0.01, p:0.9, t:0}]
+                },
+                "Ride Cymbal 2": {
+                    fx: {R:0.01, V:0, E:0, D:0, P:0},
+                    o: [{w:"noise", f:300, v:0.3, a:0, h:0, d:0.14, s:0, r:0.01, p:0.9, t:0}]
+                }
             };
-            const paramKeys = Object.keys(paramDefs);
+
+            // Default MIDI channel to patch mapping (Channel 9 is special for drums)
+            let defaultChannelMapping = {
+                0: "Crystal Piano",
+                1: "FM Electric Piano", 
+                2: "FM Filter Sweep",
+                3: "Wobble Bass",
+                4: "FM Resonance Sweep",
+                5: "Dreamwave Keys",
+                6: "Plasma Lead",
+                7: "FM Tremolo Pad",
+                8: "Ethereal Pad",
+                // Channel 9 is drums (uses midiNoteMapping)
+                10: "Deep Bass",
+                11: "Cosmic Pad",
+                12: "Neon Arp",
+                13: "FM Bell",
+                14: "Galactic Effects",
+                15: "Aurora Lead"
+            };
+            // Default MIDI note mapping (1-to-1 mapping for channel 9 drums only)
+            let defaultMidiNoteMapping = {
+                35: "Bass Drum 2",
+                36: "Bass Drum 1", 
+                37: "Side Stick",
+                38: "Snare Drum 1",
+                39: "Hand Clap",
+                40: "Snare Drum 2",
+                41: "Low Floor Tom",
+                42: "Closed Hi-Hat",
+                43: "High Floor Tom", 
+                44: "Pedal Hi-Hat",
+                45: "Low Tom",
+                46: "Open Hi-Hat",
+                47: "Low-Mid Tom",
+                48: "Hi-Mid Tom",
+                49: "Crash Cymbal 1",
+                50: "High Tom",
+                51: "Ride Cymbal 1",
+                52: "Chinese Cymbal",
+                53: "Ride Bell",
+                54: "Tambourine",
+                55: "Splash Cymbal",
+                56: "Cowbell",
+                57: "Crash Cymbal 2",
+                58: "Vibraslap",
+                59: "Ride Cymbal 2",
+                60: "Hi Bongo",
+                61: "Low Bongo",
+                62: "Mute Hi Conga",
+                63: "Open Hi Conga",
+                64: "Low Conga",
+                65: "High Timbale",
+                66: "Low Timbale",
+                67: "High Agogo",
+                68: "Low Agogo",
+                69: "Cabasa",
+                70: "Maracas",
+                71: "Short Whistle",
+                72: "Long Whistle",
+                73: "Short Guiro",
+                74: "Long Guiro",
+                75: "Claves",
+                76: "Hi Wood Block",
+                77: "Low Wood Block",
+                78: "Mute Cuica",
+                79: "Open Cuica",
+                80: "Mute Triangle",
+                81: "Open Triangle"
+            };
+
+            // Current state
+            let patches = { ...defaultPatches };
+            let midiNoteMapping = { ...defaultMidiNoteMapping }; // Only for channel 9 (drums)
+            let channelMapping = { ...defaultChannelMapping }; // For all other channels
+
+            const paramKeys = Object.keys(PARAMETER_DEFINITIONS);
             let lockedParams = new Set();
+
+            function initMidi(){
+                if(navigator.requestMIDIAccess){
+                    navigator.requestMIDIAccess().then(
+                        function(access){
+                            console.log("MIDI ready.");
+                            setTimeout(function(){
+                                var it=access.inputs.values();
+                                for(var i=it.next();!i.done;i=it.next()){
+                                    var e=document.createElement("option");
+                                    e.innerHTML=i.value.name;
+                                    document.getElementById("midiport").appendChild(e);
+                                    midiPort.push(i.value);
+                                }
+                                if(midiPort.length>0)
+                                    SelectMidi(0);
+                            },10);
+                        },
+                        function(){
+                            console.log("MIDI is not available.");
+                        }
+                );}
+            }
+
+            function updateMidiStatus(connected) {
+                const indicator = document.getElementById('midi-indicator');
+                const statusText = document.getElementById('midi-status-text');
+                
+                if (connected) {
+                    indicator.classList.add('active');
+                    statusText.textContent = 'MIDI: Connected';
+                } else {
+                    indicator.classList.remove('active');
+                    statusText.textContent = 'MIDI: Disconnected';
+                }
+            }
+
+            function SelectMidi(n) {
+                console.log("Select Port:" + n + ":" + (n >= 0 ? midiPort[n].name : "none"));
+                document.getElementById("midiport").selectedIndex = n + 1;
+                if (currentPort >= 0) {
+                    midiPort[currentPort].removeEventListener("midimessage", MidiIn);
+                }
+                currentPort = n;
+                if (currentPort >= 0) {
+                    midiPort[currentPort].addEventListener("midimessage", MidiIn);
+                    updateMidiStatus(true);
+                } else {
+                    updateMidiStatus(false);
+                }
+            }
+
+            function MidiIn(e) {
+                const [status, note, velocity] = e.data;
+                const channel = status & 0x0F;
+                const command = status & 0xF0;
+                
+                // Flash MIDI indicator
+                const indicator = document.getElementById('midi-indicator');
+                indicator.style.background = '#ff4444';
+                setTimeout(() => {
+                    if (currentPort >= 0) indicator.classList.add('active');
+                }, 50);
+
+                switch (command) {
+                    case 0x90: // Note On
+                        if (velocity > 0) {
+                            if (channel === 9) {
+                                // Channel 9 (drums) - use MIDI note mapping
+                                const mappedPatch = midiNoteMapping[note];
+                                if (mappedPatch && patches[mappedPatch]) {
+                                    const patch = patches[mappedPatch];
+                                    synth.noteOn(note, velocity, patch.o, patch.fx);
+                                }
+                            } else {
+                                // All other channels - use channel mapping
+                                const channelPatch = channelMapping[channel];
+                                if (channelPatch && patches[channelPatch]) {
+                                    const patch = patches[channelPatch];
+                                    synth.noteOn(note, velocity, patch.o, patch.fx);
+                                } else {
+                                    // Fallback to current selected patch
+                                    const currentPatch = buildPatchFromUI();
+                                    synth.noteOn(note, velocity, currentPatch.o, currentPatch.fx);
+                                }
+                            }
+                        } else {
+                            synth.noteOff(note);
+                        }
+                        break;
+                    case 0x80: // Note Off
+                        synth.noteOff(note);
+                        break;
+                    case 0xE0: // Pitch Bend
+                        const pitchBendValue = note + (velocity << 7); // Combine LSB and MSB
+                        synth.setPitchBend(pitchBendValue);
+                        break;
+                }
+            }
             
-            function populateEditor(timbreName) {
-                const patchData = timbres[timbreName];
+            function populateEditor(patchName) {
+                const patchData = patches[patchName];
                 if (!patchData) return;
                 
-                const timbre = patchData.o || patchData; // Handle old and new patch formats
-                const fx = patchData.fx || {R:0.3, V:0, E:0, D:0}; // Default FX
+                const oscillators = patchData.o || patchData;
+                const fx = patchData.fx || {R:0.3, V:0, E:0, D:0, P:0};
 
-                oscsSelect.value = timbre.length;
-                patchNameInput.value = timbreName;
+                oscsSelect.value = oscillators.length;
+                patchNameInput.value = patchName;
                 
                 // Populate global FX
-                ['Reverb', 'Vibrato', 'Echo', 'Distortion'].forEach(effect => {
+                ['Reverb', 'Vibrato', 'Echo', 'Distortion', 'Panner'].forEach(effect => {
                     const knob = document.getElementById(`${effect.toLowerCase()}-knob`);
-                    const value = fx[effect.charAt(0)] || 0;
+                    const effectKey = effect.charAt(0);
+                    const value = fx[effectKey];
                     handleGlobalKnobUpdate(knob, value);
                 });
 
+                // Populate drum mapping (only show for drum patches)
+                const mappedNote = Object.keys(midiNoteMapping).find(note => midiNoteMapping[note] === patchName);
+                drumMappingInput.value = mappedNote || '';
+
+                // Populate channel mapping 
+                const mappedChannel = Object.keys(channelMapping).find(ch => channelMapping[ch] === patchName);
+                channelInput.value = mappedChannel || '';
+
                 for(let i = 1; i <= 4; i++) {
-                    const oscDef = timbre[i-1] || {};
+                    const oscDef = oscillators[i-1] || {};
                     paramKeys.forEach(key => {
-                        const def = paramDefs[key];
+                        const def = PARAMETER_DEFINITIONS[key];
                         const el = document.getElementById(`${key}${i}`);
-                        const defaultValue = synth._createParamDefaults({})[key];
-                        const value = oscDef[key] !== undefined ? oscDef[key] : defaultValue;
+                        const defaultValue = getDefaultValue(key, oscDef);
                         
                         if (def.type === 'select') {
-                            el.value = value;
+                            el.value = defaultValue;
                         } else {
-                            const normalizedValue = Math.max(0, Math.min(1, (value - def.min) / (def.max - def.min)));
+                            const normalizedValue = Math.max(0, Math.min(1, (defaultValue - def.min) / (def.max - def.min)));
                             el.value = normalizedValue;
                             updateKnobUI(el, normalizedValue, def);
                         }
@@ -506,6 +1362,131 @@
                 }
                 updateEditorRows();
                 updatePatchInput();
+            }
+
+            function getDefaultValue(key, oscDef) {
+                // Handle direct parameter mapping first
+                if (oscDef[key] !== undefined) return oscDef[key];
+                
+                // Handle ADSR parameters with default fallbacks
+                const defaults = {
+                    g: 0, w: 'sine', v: 0.5, t: 1, f: 0,
+                    a: 0.01, h: 0, d: 0.01, s: 0, r: 0.1,
+                    k: 0, slide: 0, dSlide: 0,
+                    sCurve: 0, crush: 0, tremolo: 0, fm: 0, modTarget: 'frequency',
+                    filter: 'off', fFreq: 1000, fQ: 1, pan: 0.0
+                };
+                
+                return defaults[key];
+            }
+
+            function updateChannelMapping() {
+                const selectedPatch = timbreSelect.value;
+                const channel = parseInt(channelInput.value);
+                
+                if (channel === 9) return; // Channel 9 is reserved for drums
+                
+                // Set new mapping (overwrite if exists)
+                channelMapping[channel] = selectedPatch;
+
+            }
+                
+            function updateDrumMapping() {
+                const currentPatch = timbreSelect.value;
+                const noteNumber = parseInt(drumMappingInput.value);
+                
+                // Remove any existing mapping for this patch
+                Object.keys(midiNoteMapping).forEach(note => {
+                    if (midiNoteMapping[note] === currentPatch) {
+                        delete midiNoteMapping[note];
+                    }
+                });
+                
+                if (!isNaN(noteNumber) && noteNumber >= 0 && noteNumber <= 127) {
+                    // Set new mapping (overwrite if exists)
+                    midiNoteMapping[noteNumber] = currentPatch;
+                }
+                
+                saveMidiNoteMapping();
+            }
+
+            function saveChannelMapping() {
+                if (typeof(Storage) !== "undefined") {
+                    localStorage.setItem('synthereal_channel_mapping', JSON.stringify(channelMapping));
+                }
+            }
+
+            function loadChannelMapping() {
+                if (typeof(Storage) !== "undefined") {
+                    const saved = localStorage.getItem('synthereal_channel_mapping');
+                    if (saved) {
+                        try {
+                            channelMapping = { ...defaultChannelMapping, ...JSON.parse(saved) };
+                        } catch (e) {
+                            console.error('Failed to load channel mapping:', e);
+                            channelMapping = { ...defaultChannelMapping };
+                        }
+                    }
+                }
+            }
+
+            function saveMidiNoteMapping() {
+                if (typeof(Storage) !== "undefined") {
+                    localStorage.setItem('synthereal_midi_note_mapping', JSON.stringify(midiNoteMapping));
+                }
+            }
+
+            function loadMidiNoteMapping() {
+                if (typeof(Storage) !== "undefined") {
+                    const saved = localStorage.getItem('synthereal_midi_note_mapping');
+                    if (saved) {
+                        try {
+                            midiNoteMapping = { ...defaultMidiNoteMapping, ...JSON.parse(saved) };
+                        } catch (e) {
+                            console.error('Failed to load MIDI note mapping:', e);
+                            midiNoteMapping = { ...defaultMidiNoteMapping };
+                        }
+                    }
+                }
+            }
+
+            function resetPatchToDefault() {
+                const currentPatch = timbreSelect.value;
+                if (defaultPatches[currentPatch]) {
+                    if (confirm(`Reset "${currentPatch}" to default settings?`)) {
+                        patches[currentPatch] = JSON.parse(JSON.stringify(defaultPatches[currentPatch]));
+                        populateEditor(currentPatch);
+                        
+                        // Save the reset patch
+                        let savedPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
+                        delete savedPatches[currentPatch]; // Remove custom version
+                        localStorage.setItem('synthereal_patches', JSON.stringify(savedPatches));
+                        
+                        alert(`"${currentPatch}" reset to default!`);
+                    }
+                } else {
+                    alert('This is a custom patch with no default to reset to.');
+                }
+            }
+
+            function resetAllToDefaults() {
+                if (confirm('This will reset ALL patches, MIDI mappings, and channel assignments to defaults. Continue?')) {
+                    patches = { ...defaultPatches };
+                    midiNoteMapping = { ...defaultMidiNoteMapping };
+                    channelMapping = { ...defaultChannelMapping };
+                    
+                    if (typeof(Storage) !== "undefined") {
+                        localStorage.removeItem('synthereal_patches');
+                        localStorage.removeItem('synthereal_midi_note_mapping');
+                        localStorage.removeItem('synthereal_channel_mapping');
+                    }
+                    
+                    populateTimbreSelect();
+                    timbreSelect.value = Object.keys(patches)[0];
+                    populateEditor(timbreSelect.value);
+                    
+                    alert('All patches, MIDI mappings, and channel assignments reset to defaults!');
+                }
             }
 
             function updateEditorRows() {
@@ -517,24 +1498,28 @@
             }
 
             function updateTimbreFromEditor() {
-                const timbreName = timbreSelect.value;
-                timbres[timbreName] = buildPatchFromUI();
+                const patchName = timbreSelect.value;
+                const newPatch = buildPatchFromUI();
+                patches[patchName] = newPatch;
+                
+                // Update active notes in real-time
+                synth.updateActiveNotes(newPatch.o);
+                
                 updatePatchInput();
+                updateDrumMapping();
+                updateChannelMapping();
             }
 
             function updatePatchInput() {
-                const timbreName = timbreSelect.value;
-                const patchData = timbres[timbreName];
+                const patchName = timbreSelect.value;
+                const patchData = patches[patchName];
+                
                 const compactPatch = {
-                    fx: {
-                        R: patchData.fx.R, V: patchData.fx.V, E: patchData.fx.E, D: patchData.fx.D
-                    },
+                    fx: { R: patchData.fx.R, V: patchData.fx.V, E: patchData.fx.E, D: patchData.fx.D, P: patchData.fx.P },
                     o: patchData.o.map(osc => {
                         const compactOsc = {};
                         for (const key in osc) {
-                            if (longToShort[key]) {
-                                compactOsc[longToShort[key]] = osc[key];
-                            }
+                            compactOsc[key] = osc[key];
                         }
                         return compactOsc;
                     })
@@ -549,21 +1534,7 @@
                         const patchString = atob(encoded);
                         const { name, patch } = JSON.parse(patchString);
                         
-                        // Decompress patch
-                        const fullPatch = {
-                            fx: patch.fx,
-                            o: patch.o.map(osc => {
-                                const fullOsc = {};
-                                for (const key in osc) {
-                                    if(shortToLong[key]) {
-                                        fullOsc[shortToLong[key]] = osc[key];
-                                    }
-                                }
-                                return fullOsc;
-                            })
-                        };
-
-                        timbres[name] = fullPatch;
+                        patches[name] = patch;
                         populateTimbreSelect();
                         timbreSelect.value = name;
                         populateEditor(name);
@@ -583,22 +1554,27 @@
                     return;
                 }
                 const patch = buildPatchFromUI();
+                patches[name] = patch;
                 let savedPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
                 savedPatches[name] = patch;
                 localStorage.setItem('synthereal_patches', JSON.stringify(savedPatches));
-                loadUserPatches();
+                populateTimbreSelect();
                 timbreSelect.value = name;
+                updateDrumMapping();
+                updateChannelMapping();
                 alert(`Patch "${name}" saved!`);
             }
 
+            // --- MIDI Functions ---
             function buildPatchFromUI() {
                 const numOscs = parseInt(oscsSelect.value);
-                const newTimbre = [];
+                const newOscillators = [];
                 for (let i = 1; i <= numOscs; i++) {
                     const oscDef = {};
+                    
                     paramKeys.forEach(key => {
                         const el = document.getElementById(`${key}${i}`);
-                        const def = paramDefs[key];
+                        const def = PARAMETER_DEFINITIONS[key];
                         if (def.type === 'select') {
                             oscDef[key] = el.value;
                         } else {
@@ -608,48 +1584,42 @@
                             oscDef[key] = parseFloat(value.toFixed(4));
                         }
                     });
-                    newTimbre.push(oscDef);
+                    
+                    newOscillators.push(oscDef);
                 }
                 const fx = {
                     R: parseFloat(document.getElementById('reverb-value').textContent),
                     V: parseFloat(document.getElementById('vibrato-value').textContent),
                     E: parseFloat(document.getElementById('echo-value').textContent),
                     D: parseFloat(document.getElementById('distortion-value').textContent),
+                    P: parseFloat(document.getElementById('panner-value').textContent),
                 };
-                return { fx, o: newTimbre };
+                return { fx, o: newOscillators };
             }
 
             function loadUserPatches() {
                  let savedPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
-                 timbres = { ...defaultTimbres, ...savedPatches };
+                 patches = { ...defaultPatches, ...savedPatches };
                  populateTimbreSelect();
+                 loadMidiNoteMapping();
+                 loadChannelMapping();
             }
 
             function populateTimbreSelect() {
                 const currentVal = timbreSelect.value;
                 timbreSelect.innerHTML = '';
-                const addOption = (name, group) => {
+                
+                Object.keys(patches).forEach(name => {
                     const opt = document.createElement('option');
                     opt.value = name;
                     opt.textContent = name;
-                    group.appendChild(opt);
-                };
+                    timbreSelect.appendChild(opt);
+                });
                 
-                const defaultGroup = document.createElement('optgroup');
-                defaultGroup.label = "Default Patches";
-                for (const name in defaultTimbres) addOption(name, defaultGroup);
-                timbreSelect.appendChild(defaultGroup);
-
-                const userPatches = JSON.parse(localStorage.getItem('synthereal_patches') || '{}');
-                if (Object.keys(userPatches).length > 0) {
-                    const userGroup = document.createElement('optgroup');
-                    userGroup.label = "User Patches";
-                    for (const name in userPatches) addOption(name, userGroup);
-                    timbreSelect.appendChild(userGroup);
+                if (currentVal && patches[currentVal]) {
+                    timbreSelect.value = currentVal;
                 }
-                timbreSelect.value = currentVal;
             }
-
 
             function updateKnobUI(knob, normalizedValue, definition) {
                 let value = definition.min + normalizedValue * (definition.max - definition.min);
@@ -668,12 +1638,12 @@
                     <h3 class="text-lg font-bold text-teal-400 mb-4">Oscillator ${i}</h3>
                     <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-11 gap-x-2 gap-y-4">`;
                 paramKeys.forEach(key => {
-                    const def = paramDefs[key];
+                    const def = PARAMETER_DEFINITIONS[key];
                     editorHTML += `<div class="flex flex-col items-center">
                         <div class="flex items-center space-x-1 mb-1">
                             <label class="text-xs text-gray-400">${def.name}</label>
                             <button class="param-control-btn randomize-param-btn" data-key="${key}" data-osc="${i}" title="Randomize">🎲</button>
-                            <button class="param-control-btn lock-param-btn" data-key="${key}" data-osc="${i}" title="Lock">🔒</button>
+                            <button class="param-control-btn lock-param-btn" data-key="${key}" data-osc="${i}" title="Lock">🔓</button>
                         </div>`;
                     if (def.type === 'select') {
                         editorHTML += `<select id="${key}${i}" class="editor-select">
@@ -683,7 +1653,7 @@
                         editorHTML += `<div class="knob-control">
                             <div id="${key}${i}" class="knob-input" data-key="${key}" data-osc="${i}"></div>
                         </div>
-                        <div class="knob-value" contenteditable="true" data-key="${key}" data-osc="${i}">0.00</div>`;
+                        <div class="knob-value knob-number-input" contenteditable="true" data-key="${key}" data-osc="${i}">0.00</div>`;
                     }
                     editorHTML += `</div>`;
                 });
@@ -695,30 +1665,106 @@
             timbreSelect.addEventListener('change', () => populateEditor(timbreSelect.value));
             oscsSelect.addEventListener('change', () => { updateEditorRows(); updateTimbreFromEditor(); });
             editorGrid.addEventListener('change', updateTimbreFromEditor);
+            drumMappingInput.addEventListener('change', updateDrumMapping);
+            channelInput.addEventListener('change', updateChannelMapping);
+            resetPatchBtn.addEventListener('click', resetPatchToDefault);
+            resetAllDefaultsBtn.addEventListener('click', resetAllToDefaults);
+            
+            // Lock/Unlock All button
+            let allLocked = false;
+            lockAllBtn.addEventListener('click', () => {
+                allLocked = !allLocked;
+                const numOscs = parseInt(oscsSelect.value);
+                
+                if (allLocked) {
+                    // Lock all parameters
+                    for (let i = 1; i <= numOscs; i++) {
+                        paramKeys.forEach(key => {
+                            const id = `${key}${i}`;
+                            lockedParams.add(id);
+                            const lockBtn = document.querySelector(`[data-key="${key}"][data-osc="${i}"].lock-param-btn`);
+                            if (lockBtn) {
+                                lockBtn.classList.add('locked');
+                                lockBtn.innerHTML = '&#128274;';
+                            }
+                        });
+                    }
+                    lockAllBtn.innerHTML = '🔓 Unlock all ';
+                    lockAllBtn.className = 'bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200';
+                } else {
+                    // Unlock all parameters
+                    lockedParams.clear();
+                    document.querySelectorAll('.lock-param-btn').forEach(btn => {
+                        btn.classList.remove('locked');
+                        btn.innerHTML = '&#128275;';
+                    });
+                    lockAllBtn.innerHTML = '🔓 Unlock All';
+                    lockAllBtn.className = 'bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200';
+                }
+            });
+            
+            // Portamento controls
+            portamentoToggle.addEventListener('change', () => {
+                const enabled = portamentoToggle.checked;
+                const time = parseFloat(document.getElementById('portamento-value').textContent);
+                synth.setPortamento(enabled, time);
+            });
+            
+            portamentoKnob.addEventListener('input', () => {
+                const enabled = portamentoToggle.checked;
+                const time = parseFloat(document.getElementById('portamento-value').textContent);
+                synth.setPortamento(enabled, time);
+            });
 
             let currentKnob = null; let startX = 0; let startValue = 0;
+            
             function handleKnobUpdate(knob, newValue) {
-                const key = knob.dataset.key; const def = paramDefs[key];
+                const key = knob.dataset.key; const def = PARAMETER_DEFINITIONS[key];
                 let value = Math.max(def.min, Math.min(def.max, newValue));
                 if (def.step === 1) value = Math.round(value);
                 const normalizedValue = (value - def.min) / (def.max - def.min);
                 knob.value = normalizedValue;
-                updateKnobUI(knob, normalizedValue, def); updateTimbreFromEditor();
+                updateKnobUI(knob, normalizedValue, def); 
+                updateTimbreFromEditor();
             }
+            
             function handleGlobalKnobUpdate(knob, newValue) {
                 const id = knob.id.replace('-knob', '');
-                const def = { min: 0, max: (id === 'vibrato' ? 50 : 1) };
+                let def = { min: 0, max: 1 };
+                
+                // Special cases for different knobs
+                if (id === 'vibrato') def.max = 50;
+                if (id === 'portamento') def = { min: 0.01, max: 2.0 }; // 10ms to 2 seconds
+                
                 let value = Math.max(def.min, Math.min(def.max, newValue));
                 const normalizedValue = (value - def.min) / (def.max - def.min);
                 const angle = normalizedValue * 270 - 135;
                 knob.style.setProperty('--knob-angle', angle);
                 document.getElementById(`${id}-value`).textContent = value.toFixed(2);
+                
+                // Apply effects immediately
                 if (id === 'volume') synth.setVolume(value);
+                if (id === 'panner') synth.setPanner(value);
                 if (id === 'reverb') synth.setReverb(value);
                 if (id === 'vibrato') synth.setVibrato(value);
                 if (id === 'echo') synth.setEcho(value);
                 if (id === 'distortion') synth.setDistortion(value);
+                if (id === 'portamento') {
+                    const enabled = portamentoToggle.checked;
+                    synth.setPortamento(enabled, value);
+                }
+                
+                // Update the patch data with new FX values (except portamento which is global)
+                const currentPatch = timbreSelect.value;
+                if (patches[currentPatch] && id !== 'portamento') {
+                    const fxMap = { reverb: 'R', vibrato: 'V', echo: 'E', distortion: 'D', panner: 'P' };
+                    if (fxMap[id]) {
+                        patches[currentPatch].fx[fxMap[id]] = value;
+                    }
+                }
             }
+            
+            // Mouse control for knobs
             document.body.addEventListener('mousedown', e => {
                 const target = e.target;
                 if(target.classList.contains('knob-input')) {
@@ -729,28 +1775,36 @@
                         const id = currentKnob.id.replace('-knob', '');
                         startValue = parseFloat(document.getElementById(`${id}-value`).textContent);
                     } else {
-                        const key = currentKnob.dataset.key; const def = paramDefs[key];
+                        const key = currentKnob.dataset.key; const def = PARAMETER_DEFINITIONS[key];
                         const normalizedValue = currentKnob.value !== undefined ? parseFloat(currentKnob.value) : 0.5;
                         startValue = def.min + normalizedValue * (def.max - def.min);
                     }
                     document.body.style.cursor = 'ew-resize'; e.preventDefault();
                 }
             });
+            
             document.addEventListener('mousemove', e => {
                 if(currentKnob) {
                     const deltaX = e.clientX - startX;
                     const isGlobal = currentKnob.id.includes('-knob');
                     if (isGlobal) {
-                         handleGlobalKnobUpdate(currentKnob, startValue + (deltaX * ((currentKnob.id.includes('vibrato') ? 50 : 1) / 200)));
+                        const id = currentKnob.id.replace('-knob', '');
+                        let maxVal = 1;
+                        if (id === 'vibrato') maxVal = 50;
+                        if (id === 'portamento') maxVal = 2.0;
+                        handleGlobalKnobUpdate(currentKnob, startValue + (deltaX * (maxVal / 200)));
                     } else {
-                        const key = currentKnob.dataset.key; const def = paramDefs[key];
+                        const key = currentKnob.dataset.key; const def = PARAMETER_DEFINITIONS[key];
                         const sensitivity = (def.max - def.min) / 200;
                         const newValue = startValue + deltaX * sensitivity;
                         handleKnobUpdate(currentKnob, newValue);
                     }
                 }
             });
+            
             document.addEventListener('mouseup', () => { currentKnob = null; document.body.style.cursor = 'default'; });
+            
+            // Right-click to reset knobs
             document.body.addEventListener('contextmenu', e => {
                 const target = e.target;
                 if (target.classList.contains('knob-input')) {
@@ -759,15 +1813,30 @@
                     if (isGlobal) {
                         const id = target.id.replace('-knob', '');
                         let defaultValue = 0.0;
-                        if (id === 'volume' || id === 'reverb') defaultValue = 0.3;
+                        if (id === 'volume') defaultValue = 0.3;
+                        if (id === 'panner') defaultValue = 0.0; // No modulation by default
+                        if (id === 'portamento') defaultValue = 0.1; // 100ms default
                         handleGlobalKnobUpdate(target, defaultValue);
                     } else {
                         const key = target.dataset.key;
-                        const defaultValue = synth._createParamDefaults({})[key];
+                        const defaultValue = getDefaultValue(key, {});
                         handleKnobUpdate(target, defaultValue);
                     }
                 }
             });
+
+            editorGrid.addEventListener('keyup', e => {
+                 e.preventDefault(); // Prevent accent character popup
+                if(e.target.classList.contains('knob-value')) {
+                    const note = keyToNote[e.key];
+                    if (note) {
+                        pressedKeys.delete(note);
+                        synth.noteOff(note);
+                    }
+                }
+            });
+            
+            // Editor value editing with arrow key increment/decrement
             editorGrid.addEventListener('focusout', e => {
                 if(e.target.classList.contains('knob-value')) {
                     const target = e.target; const key = target.dataset.key; const osc = target.dataset.osc;
@@ -775,25 +1844,83 @@
                     handleKnobUpdate(knob, parseFloat(target.textContent));
                 }
             });
-            editorGrid.addEventListener('keydown', e => { if(e.target.classList.contains('knob-value') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
+
+            // Filter input for knob values - only allow numbers, dots, and minus
+            editorGrid.addEventListener('input', e => {
+                if (e.target.classList.contains('knob-number-input')) {
+                    const value = e.target.textContent;
+                    const filtered = value.replace(/[^0-9.\-]/g, '');
+                    if (value !== filtered) {
+                        e.target.textContent = filtered;
+                        // Move cursor to end
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(e.target);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                }
+            });
+            
+            editorGrid.addEventListener('keydown', e => { 
+                e.preventDefault(); // Prevent accent character popup
+                if(e.target.classList.contains('knob-value')) {
+                    if (e.key === 'Enter') { 
+                        e.target.blur(); 
+                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        const target = e.target;
+                        const key = target.dataset.key;
+                        const osc = target.dataset.osc;
+                        const def = PARAMETER_DEFINITIONS[key];
+                        const knob = document.getElementById(`${key}${osc}`);
+                        
+                        const currentValue = parseFloat(target.textContent);
+                        const stepSize = def.step || 0.01;
+                        const increment = e.key === 'ArrowUp' ? stepSize : -stepSize;
+                        
+                        // Apply larger steps with Shift modifier
+                        const actualIncrement = e.shiftKey ? increment * 10 : increment;
+                        const newValue = Math.max(def.min, Math.min(def.max, currentValue + actualIncrement));
+                        
+                        handleKnobUpdate(knob, newValue);
+                    } else {
+                        // For knob inputs, delegate note keys to keyboard handler
+                        const note = keyToNote[e.key];
+                        if (note) {
+                            // Trigger the note manually
+                            if (!pressedKeys.has(note)) {
+                                pressedKeys.add(note);
+                                const patch = buildPatchFromUI();
+                                synth.noteOn(note, 100, patch.o, patch.fx);
+                            }
+                        }
+                    }
+                } 
+            });
+            
+            // Parameter controls (randomize/lock)
             editorGrid.addEventListener('click', e => {
                 const target = e.target.closest('.param-control-btn');
                 if (!target) return;
                 const key = target.dataset.key; const osc = target.dataset.osc; const id = `${key}${osc}`;
+                
                 if (target.classList.contains('lock-param-btn')) {
                     target.classList.toggle('locked');
                     if (lockedParams.has(id)) lockedParams.delete(id); else lockedParams.add(id);
                     target.innerHTML = lockedParams.has(id) ? '&#128274;' : '&#128275;';
                 }
+                
                 if (target.classList.contains('randomize-param-btn')) {
-                    const def = paramDefs[key]; const el = document.getElementById(id);
+                    const def = PARAMETER_DEFINITIONS[key]; const el = document.getElementById(id);
                     let randomVal = def.min + Math.random() * (def.max - def.min);
                     if (def.step === 1) randomVal = Math.floor(randomVal);
                     if (def.type === 'select') el.value = def.options[Math.floor(Math.random() * def.options.length)];
                     else handleKnobUpdate(el, randomVal);
-                    updateTimbreFromEditor();
                 }
             });
+            
+            // Randomize all button
             randomizeAllBtn.addEventListener('click', () => {
                 let hasOutput = false;
                 const numOscs = parseInt(oscsSelect.value);
@@ -805,7 +1932,7 @@
                         const id = `${key}${i}`;
                         if (lockedParams.has(id)) {
                              const el = document.getElementById(id);
-                             const def = paramDefs[key];
+                             const def = PARAMETER_DEFINITIONS[key];
                              if(def.type === 'select') {
                                 oscParams[key] = el.value;
                              } else {
@@ -815,13 +1942,13 @@
                                 oscParams[key] = value;
                              }
                         } else {
-                            const def = paramDefs[key];
+                            const def = PARAMETER_DEFINITIONS[key];
                             let randomVal = def.min + Math.random() * (def.max - def.min);
                             if (def.step === 1) randomVal = Math.floor(randomVal);
                             if (def.type === 'select') {
                                 oscParams[key] = def.options[Math.floor(Math.random() * def.options.length)];
                             } else {
-                                // Musical clamping
+                                // Musical clamping for better results
                                 if(['a','h','d','r'].includes(key)) randomVal = Math.pow(Math.random(), 3) * 0.5;
                                 if(key === 'v') randomVal = Math.pow(Math.random(), 2) * def.max;
                                 oscParams[key] = randomVal;
@@ -832,6 +1959,7 @@
                     if (oscParams.g === 0) hasOutput = true;
                 }
 
+                // Ensure at least one oscillator has output
                 if (!hasOutput && numOscs > 0) {
                     let forcedOutput = false;
                     for(let i=0; i<numOscs; i++) {
@@ -841,10 +1969,10 @@
                             break;
                         }
                     }
-                    if(!forcedOutput) tempPatch[0].g = 0; // Fallback if all g are locked
+                    if(!forcedOutput) tempPatch[0].g = 0;
                 }
                 
-                // Intelligent Chaining
+                // Intelligent routing
                 for(let i=0; i<numOscs; i++) {
                     if (lockedParams.has(`g${i+1}`)) continue;
                     if (tempPatch[i].g !== 0) {
@@ -852,34 +1980,26 @@
                     }
                 }
 
-
-                // Apply the new patch
+                // Apply the randomized patch
                 for (let i = 1; i <= numOscs; i++) {
                     paramKeys.forEach(key => {
                         const id = `${key}${i}`;
                         const el = document.getElementById(id);
-                        const def = paramDefs[key];
+                        const def = PARAMETER_DEFINITIONS[key];
                         const value = tempPatch[i-1][key];
                         if (def.type === 'select') el.value = value;
                         else handleKnobUpdate(el, value);
                     });
                 }
-                updateTimbreFromEditor();
             });
             
+            // Save and copy buttons
             savePatchBtn.addEventListener('click', savePatch);
+            
             copyPatchBtn.addEventListener('click', () => {
-                const timbreName = patchNameInput.value || "My Patch";
+                const patchName = patchNameInput.value || "My Patch";
                 const patchData = buildPatchFromUI();
-                const compactPatch = {
-                    fx: patchData.fx,
-                    o: patchData.o.map(osc => {
-                        const compactOsc = {};
-                        for (const key in osc) { if (longToShort[key]) { compactOsc[longToShort[key]] = osc[key]; } }
-                        return compactOsc;
-                    })
-                };
-                const patchString = JSON.stringify({ name: timbreName, patch: compactPatch });
+                const patchString = JSON.stringify({ name: patchName, patch: patchData });
                 const encoded = btoa(patchString);
                 const baseURL = window.location.origin + window.location.pathname;
                 const shareableURL = `${baseURL}#patch=${encoded}`;
@@ -888,21 +2008,49 @@
                 });
             });
 
-            testNoteBtn.addEventListener('mousedown', () => synth.noteOn(60, 100, buildPatchFromUI().o));
-            testNoteBtn.addEventListener('mouseup', () => synth.noteOff(60));
-            testNoteBtn.addEventListener('mouseleave', () => synth.noteOff(60));
+            // Test note button - keep note playing for real-time editing
+            let testNoteActive = false;
+            testNoteBtn.addEventListener('mousedown', () => {
+                const patch = buildPatchFromUI();
+                synth.noteOn(60, 100, patch.o, patch.fx);
+                testNoteActive = true;
+            });
+            testNoteBtn.addEventListener('mouseup', () => {
+                synth.noteOff(60);
+                testNoteActive = false;
+            });
+            testNoteBtn.addEventListener('mouseleave', () => {
+                synth.noteOff(60);
+                testNoteActive = false;
+            });
 
+            // Computer keyboard input
             const keyToNote = { 'a': 60, 'w': 61, 's': 62, 'e': 63, 'd': 64, 'f': 65, 't': 66, 'g': 67, 'y': 68, 'h': 69, 'u': 70, 'j': 71, 'k': 72 };
             const pressedKeys = new Set();
+            
             document.addEventListener('keydown', e => {
-                if (e.target.isContentEditable || e.target.tagName === 'SELECT' || e.target.id === 'patch-name-input') return;
+                e.preventDefault(); // Prevent accent character popup on key hold
+                // Don't interfere with text inputs, selects, but allow knob value inputs to delegate
+                if (e.target.isContentEditable && !e.target.classList.contains('knob-number-input')) return;
+                if (e.target.tagName === 'SELECT') return;
+                if (e.target.tagName === 'INPUT' && !e.target.classList.contains('knob-number-input')) return;
+                
                 const note = keyToNote[e.key];
                 if (note && !pressedKeys.has(note)) {
+                    
                     pressedKeys.add(note);
-                    synth.noteOn(note, 100, buildPatchFromUI().o);
+                    const patch = buildPatchFromUI();
+                    synth.noteOn(note, 100, patch.o, patch.fx);
                 }
             });
+            
             document.addEventListener('keyup', e => {
+                e.preventDefault(); // Prevent any default key behavior
+                // Don't interfere with text inputs, selects, but allow knob value inputs to delegate
+                if (e.target.isContentEditable && !e.target.classList.contains('knob-number-input')) return;
+                if (e.target.tagName === 'SELECT') return;
+                if (e.target.tagName === 'INPUT' && !e.target.classList.contains('knob-number-input')) return;
+                
                 const note = keyToNote[e.key];
                 if (note) {
                     pressedKeys.delete(note);
@@ -910,17 +2058,22 @@
                 }
             });
 
+            // Initialize
             loadUserPatches();
             if(!loadPatchFromURL()) {
                  timbreSelect.value = "Crystal Piano";
                 populateEditor(timbreSelect.value);
             }
             
-            const globalKnobs = ['volume', 'reverb', 'vibrato', 'echo', 'distortion'];
+            // Initialize global knob angles
+            const globalKnobs = ['volume', 'panner', 'reverb', 'vibrato', 'echo', 'distortion', 'portamento'];
             globalKnobs.forEach(id => {
                 const knob = document.getElementById(`${id}-knob`);
                 const valueEl = document.getElementById(`${id}-value`);
-                const def = { min: 0, max: (id === 'vibrato' ? 50 : 1) };
+                let def = { min: 0, max: 1 };
+                if (id === 'vibrato') def.max = 50;
+                if (id === 'portamento') def = { min: 0.01, max: 2.0 };
+                
                 const value = parseFloat(valueEl.textContent);
                 const normalizedValue = (value - def.min) / (def.max - def.min);
                 const angle = normalizedValue * 270 - 135;
