@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yield Notebook</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .fira-code { font-family: 'Fira-Code', monospace; }
+        [contenteditable]:focus {
+            outline: 2px solid #4f46e5;
+            box-shadow: 0 0 0 2px white;
+        }
+        .control-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-5xl font-bold text-gray-900">Yield Notebook</h1>
+            <p class="mt-2 text-lg text-gray-600">An interactive concatenative functional language notebook inspired by the Joy programming language.</p>
+        </header>
+
+        <div id="notebook-container">
+            <!-- Notebook cells will be dynamically inserted here -->
+        </div>
+
+    </div>
+
+    <script id="yield-interpreter-core">
+        const Yield = (() => {
+            'use strict';
+            const dictionary = {}; 
+            const builtInKeys = new Set(); // Keep track of original built-in functions
+            let evaluate;
+
+            // Parses the code string into a program array.
+            const parse = code => {
+                // Remove comments first
+                const cleanCode = code
+                    .replace(/\(\*.*?\*\)/gs, '') // Block comments (* ... *)
+                    .replace(/#.*/g, '');      // Line comments # ...
+
+                // Tokenize the code string
+                let tokens = cleanCode
+                    .replace(/\[/g, ' [ ')
+                    .replace(/\]/g, ' ] ')
+                    .trim()
+                    .split(/\s+/);
+
+                // Recursively builds the program structure
+                const build = () => {
+                    let program = [];
+                    while (tokens.length) {
+                        const token = tokens.shift();
+                        if (!token) continue;
+                        if (token === ']') return program;
+                        if (token.startsWith('"') && token.endsWith('"') && token.length > 1) {
+                            program.push(token.slice(1, -1)); // Handle strings
+                        } else if (token === '[') {
+                            program.push(build()); // Recursively build sub-list
+                        } else {
+                            const num = parseFloat(token);
+                            // Push numbers or symbols
+                            program.push(!isNaN(num) && isFinite(token) ? num : token);
+                        }
+                    }
+                    return program;
+                };
+                return build();
+            };
+            
+            // The core evaluation generator
+            evaluate = function* (program, stack, options = {}) {
+                if (!Array.isArray(program)) {
+                    stack.push(program); // Push non-array tokens directly
+                    yield;
+                    return;
+                }
+
+                program = [...program];
+                
+                while (program.length) {
+                    let token = program.shift();
+
+                    if (options.isDebug && options.onToken) {
+                        options.onToken(token, stack);
+                    }
+                    
+                    if (token === '=') {
+                        const name = stack.pop();
+                        if (typeof name !== 'string') {
+                            throw new Error(`Assignment target must be a name/symbol, but got: ${name}`);
+                        }
+                        let value = stack.pop();
+                        
+                        // Handle both << (replace) and >> (append) state update modes
+                        const lastOp = Array.isArray(value) ? value[value.length - 1] : null;
+                        if (lastOp === '<<' || lastOp === '>>') {
+                            value.pop(); // remove operator
+                            const body = value.pop();
+                            const def = { 
+                                body: body, 
+                                isRecurrent: true, 
+                                instance: null,
+                                updateMode: lastOp === '<<' ? 'replace' : 'append' // Store the update mode
+                            };
+                            
+                            // Check for default state initializer '>>'
+                            if (value.length > 0 && value[value.length - 1] === '>>') {
+                                value.pop(); // remove '>>'
+                                def.defaultState = value.length === 1 ? value[0] : value;
+                            }
+                            dictionary[name] = def;
+                        } else {
+                             // Standard function definition
+                             dictionary[name] = {
+                                exec: function*(s, opts) { yield* evaluate(value, s, opts); },
+                                body: value
+                            };
+                        }
+                    } else if (!Array.isArray(token) && dictionary[token]) {
+                        const def = dictionary[token];
+                        if (def.isRecurrent) {
+                            if (!def.instance) {
+                                // Initialize state on first call
+                                let initializer;
+                                if (def.hasOwnProperty('defaultState')) {
+                                    initializer = def.defaultState;
+                                } else if (stack.length > 0) {
+                                    initializer = stack.pop();
+                                } else {
+                                    throw new Error(`Recurrent function '${token}' needs an initial value on the stack or a default value in its definition.`);
+                                }
+                                
+                                // State (memo) is always a list
+                                def.instance = { memo: Array.isArray(initializer) ? initializer : [initializer] };
+                            }
+                            
+                            const recurrentOpts = { ...options };
+                            
+                            if (def.updateMode === 'append') {
+                                // In append mode, the state is pushed as a SINGLE LIST.
+                                const tempStack = [def.instance.memo];
+                                yield* evaluate([...def.body], tempStack, recurrentOpts);
+                                if (tempStack.length !== 1) {
+                                    throw new Error(`Generator body for '${token}' in append mode must leave exactly one item on the stack, but left ${tempStack.length}.`);
+                                }
+                                const result = tempStack.pop();
+                                def.instance.memo.push(result);
+                                stack.push(result);
+                            } else { // 'replace' mode
+                                // In replace mode, the state is SPREAD onto the stack.
+                                const tempStack = [...def.instance.memo];
+                                yield* evaluate([...def.body], tempStack, recurrentOpts);
+                                def.instance.memo = tempStack; // Whatever is left is the new state.
+                                if (tempStack.length > 0) {
+                                    stack.push(tempStack[tempStack.length - 1]);
+                                }
+                            }
+
+                        } else {
+                            // Standard function execution
+                            yield* def.exec(stack, options);
+                        }
+                    } else {
+                        stack.push(token);
+                    }
+                    yield; 
+                }
+            };
+
+            // The main execution runner
+            const run = (program, stack, options = {}) => {
+                const {
+                    stopSignal = { stopped: false },
+                    pauseSignal = { paused: false },
+                    onStep = () => {},
+                    onToken = () => {},
+                    getDelay = () => options.delay || 0,
+                    isDebug = false
+                } = options;
+
+                return new Promise((resolve, reject) => {
+                    const iterator = evaluate(program, stack, options);
+                    
+                    const step = () => {
+                        try {
+                            if (stopSignal.stopped) {
+                                return resolve(); 
+                            }
+                            if (pauseSignal.paused) {
+                                if (options.setResume) options.setResume(step);
+                                return; 
+                            }
+                            
+                            // Run in chunks for performance, or step-by-step in debug mode
+                            const chunkSize = isDebug ? 1 : 1000;
+                            for (let i = 0; i < chunkSize; i++) {
+                                const result = iterator.next();
+                                if (result.done) {
+                                    if (isDebug) onStep(stack);
+                                    return resolve();
+                                }
+                            }
+                            
+                            if (isDebug) {
+                                onStep(stack);
+                            }
+                            
+                            setTimeout(step, getDelay()); 
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    
+                    if (options.setResume) {
+                        options.setResume(step);
+                    }
+                    step();
+                });
+            };
+
+            // Resets the entire environment, deleting user-defined functions.
+            const reset = () => {
+                for (const key in dictionary) {
+                    if (!builtInKeys.has(key)) {
+                        // Delete all user-defined functions
+                        delete dictionary[key];
+                    } else if (dictionary[key].isRecurrent) {
+                        // Reset state for any built-in recurrent functions
+                        dictionary[key].instance = null;
+                    }
+                }
+            };
+
+            // Core dictionary of built-in functions
+            Object.assign(dictionary, {
+                // Literals & Operands
+                true: { exec: function*(s) { s.push(true); } },
+                false: { exec: function*(s) { s.push(false); } },
+                maxint: { exec: function*(s) { s.push(Number.MAX_SAFE_INTEGER); } },
+                stack: { exec: function*(s) { s.push([...s].reverse()); } },
+                clock: { exec: function*(s) { s.push(performance.now()); } },
+                time: { exec: function*(s) { s.push(Math.floor(Date.now() / 1000)); } },
+                rand: { exec: function*(s) { s.push(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)); } },
+
+                // Stack Primitives
+                pop: { exec: function*(s) { s.pop(); } },
+                put: { exec: function*(s) { s; } },
+                dup: { exec: function*(s) { s.push(s[s.length - 1]); } },
+                swap: { exec: function*(s) { s.push(s.pop(), s.pop()); } },
+                id: { exec: function*(s) {} },
+                rollup: { exec: function*(s) { const z = s.pop(), y = s.pop(), x = s.pop(); s.push(z, x, y); } },
+                rolldown: { exec: function*(s) { const z = s.pop(), y = s.pop(), x = s.pop(); s.push(y, z, x); } },
+                rotate: { exec: function*(s) { const z = s.pop(), y = s.pop(), x = s.pop(); s.push(z, y, x); } },
+                popd: { exec: function*(s) { const y = s.pop(); s.pop(); s.push(y); } },
+                dupd: { exec: function*(s) { const y = s.pop(); s.push(s[s.length-1], y); } },
+                swapd: { exec: function*(s) { const c = s.pop(), b = s.pop(), a = s.pop(); s.push(b, a, c); } },
+
+                // Logical and Set
+                or: { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a || b); } },
+                xor: { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(!!(a ^ b)); } },
+                and: { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a && b); } },
+                not: { exec: function*(s) { s.push(!s.pop()); } },
+
+                // Math
+                '+': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a + b); } },
+                '-': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a - b); } },
+                '*': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a * b); } },
+                '/': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a / b); } },
+                '%': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a % b); } },
+                div: { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(Math.floor(a/b), a % b); } },
+                sign: { exec: function*(s) { s.push(Math.sign(s.pop())); } },
+                neg: { exec: function*(s) { s.push(-s.pop()); } },
+                abs: { exec: function*(s) { s.push(Math.abs(s.pop())); } },
+                pred: { exec: function*(s) { s.push(s.pop() - 1); } },
+                succ: { exec: function*(s) { s.push(s.pop() + 1); } },
+                max: { exec: function*(s) { s.push(Math.max(s.pop(), s.pop())); } },
+                min: { exec: function*(s) { s.push(Math.min(s.pop(), s.pop())); } },
+                sum: { exec: function*(s) { 
+                    const arr = s.pop(); 
+                    if (!Array.isArray(arr)) throw new Error('sum expects a list');
+                    s.push(arr.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)); 
+                } },
+
+                // JS Math Bridge
+                acos: { exec: function*(s) { s.push(Math.acos(s.pop())); } }, asin: { exec: function*(s) { s.push(Math.asin(s.pop())); } },
+                atan: { exec: function*(s) { s.push(Math.atan(s.pop())); } }, atan2: { exec: function*(s) { const b=s.pop(), a=s.pop(); s.push(Math.atan2(a,b)); } },
+                ceil: { exec: function*(s) { s.push(Math.ceil(s.pop())); } }, cos: { exec: function*(s) { s.push(Math.cos(s.pop())); } },
+                cosh: { exec: function*(s) { s.push(Math.cosh(s.pop())); } }, exp: { exec: function*(s) { s.push(Math.exp(s.pop())); } },
+                floor: { exec: function*(s) { s.push(Math.floor(s.pop())); } }, log: { exec: function*(s) { s.push(Math.log(s.pop())); } },
+                log10: { exec: function*(s) { s.push(Math.log10(s.pop())); } }, pow: { exec: function*(s) { const b=s.pop(), a=s.pop(); s.push(Math.pow(a,b)); } },
+                sin: { exec: function*(s) { s.push(Math.sin(s.pop())); } }, sinh: { exec: function*(s) { s.push(Math.sinh(s.pop())); } },
+                sqrt: { exec: function*(s) { s.push(Math.sqrt(s.pop())); } }, tan: { exec: function*(s) { s.push(Math.tan(s.pop())); } },
+                tanh: { exec: function*(s) { s.push(Math.tanh(s.pop())); } }, trunc: { exec: function*(s) { s.push(Math.trunc(s.pop())); } },
+
+                // Type and Conversion
+                ord: { exec: function*(s) { s.push(s.pop().charCodeAt(0)); } },
+                chr: { exec: function*(s) { s.push(String.fromCharCode(s.pop())); } },
+
+                // Aggregate (List) Operators
+                cons: { exec: function*(s) { const l = s.pop(); const e = s.pop(); if (!Array.isArray(l)) throw new Error('cons expects a list'); s.push([e, ...l]); } },
+                append: { exec: function*(s) {
+                    const e = s.pop(); 
+                    const l = s.pop(); 
+                    if (!Array.isArray(l)) throw new Error('append expects a list');
+                    l.push(e);
+                    s.push(l);
+                }},
+                uncons: { exec: function*(s) { const [h, ...t] = s.pop(); s.push(t, h); } },
+                first: { exec: function*(s) { s.push(s.pop()[0]); } },
+                spread: { exec: function*(s) { const v = s.pop(); if (Array.isArray(v)) { s.push(...v); } else { s.push(v); } } },
+                rest: { exec: function*(s) { s.push(s.pop().slice(1)); } },
+                size: { exec: function*(s) { s.push(s.pop().length); } },
+                at: { exec: function*(s) { const i = s.pop(), a = s.pop(); s.push(a[i]); } },
+                of: { exec: function*(s) { const a = s.pop(), i = s.pop(); s.push(a[i]); } },
+                drop: { exec: function*(s) { const n = s.pop(), a = s.pop(); s.push(a.slice(n)); } },
+                take: { exec: function*(s) { const n = s.pop(), a = s.pop(); s.push(a.slice(0, n)); } },
+                concat: { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a.concat(b)); } },
+
+                // Utility Operators
+                unitlist: { exec: function*(s) { s.push([s.pop()]); } },
+                second: { exec: function*(s) { const a = s.pop(); s.push(a.slice(1)[0]); s.push(a); } },
+                third: { exec: function*(s) { const a = s.pop(); s.push(a.slice(2)[0]); s.push(a); } },
+                shunt: { exec: function*(s) { let l2 = s.pop(); let l1 = s.pop(); for(const item of l2.reverse()) { l1.unshift(item); } s.push(l1); } },
+                reverse: { exec: function*(s) { s.push(s.pop().reverse()); } },
+                putchars: { exec: function*(s) { console.log(s.pop()); } },
+                newline: { exec: function*(s) { console.log('\n'); } },
+                dip2: { exec: function*(s, options) { const p = s.pop(); const y = s.pop(); const x = s.pop(); yield* evaluate(p, s, options); s.push(x); s.push(y); } },
+                dip3: { exec: function*(s, options) { const p = s.pop(); const z = s.pop(); const y = s.pop(); const x = s.pop(); yield* evaluate(p, s, options); s.push(x); s.push(y); s.push(z); } },
+
+                // Predicates
+                '>=': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a >= b); } },
+                '>': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a > b); } },
+                '<=': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a <= b); } },
+                '<': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a < b); } },
+                '!=': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a != b); } },
+                '==': { exec: function*(s) { const b = s.pop(), a = s.pop(); s.push(a === b); } },
+                null: { exec: function*(s) { const a = s.pop(); s.push(a === 0 || (Array.isArray(a) && a.length === 0)); } },
+                small: { exec: function*(s) { const a = s.pop(); s.push(a === 0 || a === 1 || (Array.isArray(a) && a.length <= 1)); } },
+                has: { exec: function*(s) { const x = s.pop(), a = s.pop(); s.push(a.includes(x)); } },
+                in: { exec: function*(s) { const a = s.pop(), x = s.pop(); s.push(a.includes(x)); } },
+                integer: { exec: function*(s) { const v = s.pop(); s.push(Number.isInteger(v)); } },
+                char: { exec: function*(s) { const v = s.pop(); s.push(typeof v === 'string' && v.length === 1); } },
+                logical: { exec: function*(s) { const v = s.pop(); s.push(typeof v === 'boolean'); } },
+                string: { exec: function*(s) { const v = s.pop(); s.push(typeof v === 'string'); } },
+                list: { exec: function*(s) { const v = s.pop(); s.push(Array.isArray(v)); } },
+                
+                // Combinators
+                i: { exec: function*(s, options) { yield* evaluate(s.pop(), s, options); } },
+                dip: { exec: function*(s, options) { const p = s.pop(); const v = s.pop(); yield* evaluate(p, s, options); s.push(v); } },
+                map: { exec: function*(s, options) {
+                    const [p, l] = [s.pop(), s.pop()];
+                    const results = [];
+                    for(const item of l) {
+                        const tempStack = [item];
+                        yield* evaluate([...p], tempStack, options);
+                        results.push(...tempStack);
+                    }
+                    s.push(results);
+                }},
+                filter: { exec: function*(s, options) {
+                    const [p, l] = [s.pop(), s.pop()];
+                    const results = [];
+                    for (const item of l) {
+                        const tempStack = [item];
+                        yield* evaluate([...p], tempStack, options);
+                        if (tempStack.pop()) {
+                            results.push(item);
+                        }
+                    }
+                    s.push(results);
+                }},
+                step: { exec: function*(s, options) {
+                    const [p, l] = [s.pop(), s.pop()];
+                    for (const item of l) {
+                        s.push(item);
+                        yield* evaluate([...p], s, options);
+                    }
+                }},
+                ifte: { exec: function*(s, options) { const f = s.pop(); const t = s.pop(); yield* evaluate(s.pop() ? t : f, s, options); } },
+                times: { exec: function*(s, options) {
+                    let p = s.pop();
+                    const n = s.pop();
+
+                    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) {
+                        throw new Error("times expects an integer count on top of the stack.");
+                    }
+                    
+                    let programToRun = Array.isArray(p) ? p : [p];
+
+                    for (let i = 0; i < n; i++) {
+                        yield* evaluate([...programToRun], s, options);
+                    }
+                }},
+                while: { exec: function*(s, options) {
+                    const body = s.pop();
+                    const test = s.pop();
+                    yield* evaluate([...test], s, options);
+                    while (s.pop()) {
+                        yield* evaluate([...body], s, options);
+                        yield* evaluate([...test], s, options);
+                    }
+                }},
+                branch: { exec: function*(s, options) { const f = s.pop(); const t = s.pop(); const b = s.pop(); if(b) yield* evaluate(t, s, options); else yield* evaluate(f, s, options); } },
+                cleave: { exec: function*(s, options) {
+                    const p2 = s.pop(); const p1 = s.pop(); const x = s.pop();
+                    const s1 = [x];
+                    yield* evaluate(p1, s1, options);
+                    const s2 = [x];
+                    yield* evaluate(p2, s2, options);
+                    s.push(...s1, ...s2);
+                }},
+                cond: { exec: function*(s, options) {
+                    const cases = s.pop();
+                    if (!Array.isArray(cases) || cases.length === 0) return;
+                    const value = s[s.length - 1]; // Peek
+                    const defaultCase = cases.pop();
+                    for (const caseItem of cases) {
+                        if (!Array.isArray(caseItem) || caseItem.length !== 2) continue;
+                        const [condition, then] = caseItem;
+                        const tempStack = [value];
+                        yield* evaluate(condition, tempStack, options);
+                        if (tempStack.pop()) {
+                            yield* evaluate(then, s, options);
+                            return;
+                        }
+                    }
+                    if (Array.isArray(defaultCase) && defaultCase.length > 0) {
+                        yield* evaluate(defaultCase[0], s, options);
+                    }
+                }},
+                linrec: { exec: function*(s, options = {}) {
+                    const [after, recur, then, i_f] = [s.pop(),s.pop(),s.pop(),s.pop()];
+                    const linrec_recursive = function*(v, opts) {
+                        const cS = [v]; yield* evaluate([...i_f], cS, opts);
+                        if (cS.pop()) {
+                            const tS = [v]; yield* evaluate([...then], tS, opts);
+                            return tS;
+                        } else {
+                            const pS = [v]; yield* evaluate([...recur], pS, opts);
+                            const nV = pS.pop(); const aO = [...pS];
+                            const rR = yield* linrec_recursive(nV, opts);
+                            const aS = [...aO, ...rR]; yield* evaluate([...after], aS, opts);
+                            if (opts.isDebug) opts.onStep([...s, ...aS]);
+                            return aS;
+                        }
+                    };
+                    const result = yield* linrec_recursive(s.pop(), options);
+                    s.push(...result);
+                }},
+                binrec: { exec: function*(s, options = {}) {
+                    const [join, recur, then, i_f] = [s.pop(),s.pop(),s.pop(),s.pop()];
+                    const binrec_recursive = function*(v, opts) {
+                        const cS = [v]; yield* evaluate([...i_f], cS, opts);
+                        
+                        if (cS.pop()) {
+                            const tS = [v]; yield* evaluate([...then], tS, opts);
+                            return tS;
+                        } else {
+                            const rS = [v]; yield* evaluate([...recur], rS, opts);
+                            const v2 = rS.pop(); 
+                            const v1 = rS.pop();
+                            
+                            const res1 = yield* binrec_recursive(v1, opts);
+                            const res2 = yield* binrec_recursive(v2, opts);
+
+                            const jS = [...rS, ...res1, ...res2]; 
+                            yield* evaluate([...join], jS, opts);
+                            if (opts.isDebug) {
+                               opts.onStep([...s, ...jS]);
+                            }
+                            return jS;
+                        }
+                    };
+                    const result = yield* binrec_recursive(s.pop(), options);
+                    s.push(...result);
+                }},
+                body: { exec: function*(s) {
+                    const sym = s.pop();
+                    if (dictionary[sym] && dictionary[sym].body) {
+                        s.push(dictionary[sym].body);
+                    } else {
+                        throw new Error(`body: '${sym}' is not a user-defined symbol or has no body.`);
+                    }
+                }}
+            });
+
+            // After all built-ins are defined, store their keys.
+            Object.keys(dictionary).forEach(key => builtInKeys.add(key));
+
+
+            return { parse, run, reset };
+        })();
+    </script>
+
+    <script id="notebook-ui-script">
+        document.addEventListener('DOMContentLoaded', () => {
+            const notebookContainer = document.getElementById('notebook-container');
+            const runningCells = new Map();
+
+            const deepEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+            const documentation = [
+                {
+                    section: "Getting Started: Comments & Primitives",
+                    cells: [
+                        { name: "Comments", description: "Yield supports two styles of comments. `(* ... *)` for block comments, and `#` for comments that go to the end of the line. The interpreter ignores all comments.", effect: "N/A", example: "1 2 + (* This is a comment *)", assert: (stack) => deepEqual(stack, [3]) },
+                        { name: "Integers & Floats", description: "Numbers (both integers and decimals) are pushed directly onto the stack.", effect: "-> N", example: "42 -10 3.14159", assert: (stack) => deepEqual(stack, [42, -10, 3.14159]) },
+                        { name: "true false", description: "Pushes the boolean values `true` or `false`.", effect: "-> B", example: "true false", assert: (stack) => deepEqual(stack, [true, false]) },
+                    ]
+                },
+                {
+                    section: "The Stack & Lists (Quotations)",
+                    cells: [
+                        { name: "Stack Primitives", description: "Core functions for manipulating the stack.", effect: "...", example: "10 20 swap # -> [20 10]\n10 dup      # -> [10 10]\n10 20 pop     # -> [10]", assert: (stack) => deepEqual(stack, [20, 10, 10, 10, 10]) },
+                        { name: "cons", description: "Constructs a new list by pushing an element onto the front of an existing list.", effect: "[A X] -> [B]", example: "1 [2 3 4] cons", assert: (stack) => deepEqual(stack, [[1, 2, 3, 4]]) },
+                        { name: "first", description: "Gets the first element of a list.", effect: "[[A B]] -> [A]", example: "[10 20 30] first", assert: (stack) => deepEqual(stack, [10]) },
+                        { name: "spread", description: "Spreads the elements of a list onto the stack.", effect: "[[A B]] -> [A B]", example: "[10 20 30] spread", assert: (stack) => deepEqual(stack, [10, 20, 30]) },
+                        { name: "rest", description: "Gets the rest of a list (all but the first element).", effect: "[A] -> [R]", example: "[10 20 30] rest", assert: (stack) => deepEqual(stack, [[20, 30]]) },
+                        { name: "uncons", description: "Deconstructs a list into its first element and the rest of the list.", effect: "[A] -> [F R]", example: "[10 20 30] uncons", assert: (stack) => deepEqual(stack, [[20, 30], 10]) },
+                        { name: "size", description: "Gets the number of elements in a list or string.", effect: "[A] -> [I]", example: "[1 2 3] size \"hello\" size", assert: (stack) => deepEqual(stack, [3, 5]) },
+                        { name: "at / of", description: "Gets the element at a specific index.", effect: "[A I] -> [X] | [I A] -> [X]", example: "[10 20 30] 1 at # 'at' is postfix\n1 [10 20 30] of # 'of' is infix", assert: (stack) => deepEqual(stack, [20, 20]) },
+                        { name: "take / drop", description: "Take or drop N elements from the front of a list.", effect: "[A N] -> [B]", example: "[1 2 3 4 5] 2 take [1 2 3 4 5] 2 drop", assert: (stack) => deepEqual(stack, [[1, 2], [3, 4, 5]]) },
+                        { name: "concat", description: "Concatenates two lists or strings.", effect: "[S T] -> [U]", example: "[1 2] [3 4] concat", assert: (stack) => deepEqual(stack, [[1, 2, 3, 4]]) },
+                    ]
+                },
+                {
+                    section: "Defining Functions & Utilities",
+                    description: "In Yield, you can define your own helper functions to make code cleaner and more reusable. This section covers how to define functions and introduces some common utilities. While you can define these yourself, many are included in this interpreter's core library for convenience.",
+                    cells: [
+                        { name: "= (assign)", description: "Defines a new function. The syntax is `[body] name =`.", effect: "N/A", example: '[dup *] square =\n\n5 square', assert: (stack) => deepEqual(stack, [25]) },
+                        { name: "popd / dupd / swapd", description: "Stack operations that affect the second and third items on the stack, leaving the top untouched.", effect: "...", example: "10 20 30 swapd", assert: (stack) => deepEqual(stack, [20, 10, 30]) },
+                        { name: "put", description: "Explicit command to put item to stack", effect: "[A] -> [A]", example: "1 2 3 put", assert: (stack) => deepEqual(stack, [1, 2, 3])},
+                        { name: "rollup / rolldown / rotate", description: "Advanced operators for reordering the top three stack items.", effect: "[X Y Z] -> ...", example: "10 20 30 rollup", assert: (stack) => deepEqual(stack, [30, 10, 20]) },
+                        { name: "unitlist", description: "Wraps the top element in a list.", effect: "[X] -> [[X]]", example: "10 unitlist", assert: (stack) => deepEqual(stack, [[10]]) },
+                        { name: "reverse", description: "Reverses a list or string.", effect: "[S] -> [S']", example: "[1 2 3 4] reverse", assert: (stack) => deepEqual(stack, [[4, 3, 2, 1]]) },
+                        { name: "dip", description: "Saves the top element, executes a program, then restores the element.", effect: "[A [P]] -> [A]", example: "10 [20 30 +] dip", assert: (stack) => deepEqual(stack, [50, 10]) },
+                        { name: "i", description: "The simplest possible interpreter is the `i` combinator.", effect: "N/A", example: '[1 1 +] i \n [i] meh = [1 1 +] meh', assert: (stack) => deepEqual(stack, [2, 2]) }
+                    ]
+                },
+                {
+                    section: "Mathematical Operators",
+                    cells: [
+                        { name: "Basic Arithmetic", description: "Basic arithmetic operators for both integers and floats.", effect: "[A B] -> [C]", example: "20 10 + # -> 30\n1.5 2.5 + # -> 4.0", assert: (stack) => deepEqual(stack, [30, 4.0]) },
+                        { name: "Integer Math", description: "Operators specific to integer arithmetic.", effect: "[I J] -> [K L]", example: "21 10 div", assert: (stack) => deepEqual(stack, [2, 1]) },
+                        { name: "Numeric Properties", description: "Functions that return properties of a number.", effect: "[N] -> [N']", example: "-15 sign 15 neg -15 abs", assert: (stack) => deepEqual(stack, [-1, -15, 15]) },
+                        { name: "Comparison", description: "Maximum and minimum of two numbers.", effect: "[N1 N2] -> [N]", example: "10 20 max 10 20 min", assert: (stack) => deepEqual(stack, [20, 10]) },
+                        { name: "Trigonometric", description: "Standard trigonometric functions.", effect: "[F] -> [G]", example: "0.5 sin", assert: (stack) => stack.length === 1 && typeof stack[0] === 'number' },
+                        { name: "Logarithmic & Exponential", description: "Log, power, and square root.", effect: "[F G] -> [H]", example: "25 sqrt 2 8 pow", assert: (stack) => deepEqual(stack, [5, 256]) },
+                        { name: "Rounding", description: "Rounding functions for floats.", effect: "[F] -> [G]", example: "3.7 floor 3.1 ceil 3.7 trunc", assert: (stack) => deepEqual(stack, [3, 4, 3]) },
+                    ]
+                },
+                 {
+                    section: "Recurrent Functions (Generators)",
+                    description: "Recurrent functions (or generators) maintain an internal state. They are defined using the `<<` and `>>` operators. The syntax is `[initial_state >> [body] <<] name =`.",
+                    cells: [
+                        { 
+                            name: "Simple Counter", 
+                            description: "The state is `[N]`. The body receives `N` on the stack, operates on it, and the result becomes the new state `[N+1]`.",
+                            effect: "[S] [F] -> [S']", 
+                            example: `# State is [N]. Body receives N, returns N+1.
+[[1] >> [succ] <<] n =
+
+n # -> 2
+n # -> 3
+n # -> 4`,
+                            assert: (stack) => deepEqual(stack, [2, 3, 4])
+                        },
+                        { 
+                            name: "Fibonacci Sequence", 
+                            description: "The state is `[A B]`. The body receives `A B` on the stack, calculates the next pair, and the result `[B A+B]` becomes the new state.",
+                            effect: "[[S1 S2]] [F] -> [R2]", 
+                            example: `# State is [A B]. Body returns [B A+B].
+[[0 1] >> [swap dupd +] <<] fib =
+
+fib   # -> 1
+fib   # -> 2
+fib   # -> 3
+fib   # -> 5`,
+                            assert: (stack) => deepEqual(stack, [1, 2, 3, 5])
+                        },
+                        { 
+                            name: "Memoization: Lucas Numbers", 
+                            description: "This example generates Lucas numbers, a sequence related to Fibonacci. It uses the same pattern as `fib`, but starts with `[2 1]` to produce a different sequence.",
+                            effect: "[[L0 L1]] [F] -> [L2]", 
+                            example: `# State is [A B]. Body returns [B A+B].
+[[2 1] >> [swap dupd +] <<] lucas =
+
+lucas  # -> 3
+lucas  # -> 4
+lucas  # -> 7
+lucas  # -> 11`,
+                            assert: (stack) => deepEqual(stack, [3, 4, 7, 11])
+                        },
+                        { 
+                            name: "Accumulators: Triangular Numbers", 
+                            description: "The state is `[I S]`. The body receives `I S`, calculates the next state `[I+1 S+I]`, and returns it.",
+                            effect: "[[NextInt, CurrentSum]] -> [NextSum]", 
+                            example: `# State: [I S]. Body returns [I+1 S+I].
+[[1 0] >> [
+    dupd         # [I I S]
+    swap         # [I S I]
+    +            # [I, S+I] (new sum)
+    swap         # [S+I, I]
+    succ         # [S+I, I+1] (new integer)
+    swap         # [I+1, S+I] (final state)
+] <<] triangular =
+
+# Generate the first 5 triangular numbers
+5 [triangular] times`,
+                            assert: (stack) => deepEqual(stack, [1, 3, 6, 10, 15])
+                        },
+                        { 
+                            name: "Conditional Generators: Collatz Sequence", 
+                            description: "The state is `[N]`. The body receives `N`, applies the Collatz rule, and returns the new state `[N']`.",
+                            effect: "[N] -> [N']", 
+                            example: `# State is [N]. Body returns [N'].
+[[27] >> [
+    dup 2 % 0 ==    # Check if 'n' is even
+    [ 2 / ]         # Program for 'true' (even)
+    [ 3 * 1 + ]     # Program for 'false' (odd)
+    branch
+] <<] collatz_step =
+
+# Generate the first 15 terms
+15 [collatz_step] times`,
+                            assert: (stack) => deepEqual(stack, [82, 41, 124, 62, 31, 94, 47, 142, 71, 214, 107, 322, 161, 484, 242])
+                        }
+                    ]
+                },
+                {
+                    section: "Advanced Generators: Accumulating State",
+                    cells: [
+                        {
+                            name: "Sum of Previous Terms",
+                            description: "A sequence where each new term is the sum of all previous terms. The generator's state is a list of all numbers generated so far. The `>>]` at the end signifies that the body's result should be appended to the state, rather than replacing it.",
+                            effect: "[[N1 N2 ...]] -> [Sum]",
+                            example: `# A sequence: 1, 1, 2, 4, 8, 16...
+# The body receives the state list [S] and must return the NEW ITEM to append.
+[[1] >> [
+    dup     # [[S]] -> [[S] [S]]
+    sum       # [[S] sum(S)]
+    popd      # [sum(S)] - leave only the new value on the stack
+] >>] sum_seq =
+
+# The first call will produce the second term.
+sum_seq # -> 1 (state becomes [1, 1])
+sum_seq # -> 2 (state becomes [1, 1, 2])
+sum_seq # -> 4 (state becomes [1, 1, 2, 4])
+sum_seq # -> 8 (state becomes [1, 1, 2, 4, 8])`,
+                            assert: (stack) => deepEqual(stack, [1, 2, 4, 8])
+                        }
+                    ]
+                },
+                {
+                    section: "System & Environment (JS Bridge)",
+                    cells: [
+                        { name: "time", description: "Pushes the current Unix time (seconds since epoch).", effect: "-> I", example: "time", assert: (stack) => stack.length === 1 && Number.isInteger(stack[0]) },
+                        { name: "clock", description: "Pushes the number of milliseconds since the page loaded.", effect: "-> F", example: "clock", assert: (stack) => stack.length === 1 && typeof stack[0] === 'number' },
+                        { name: "rand", description: "Pushes a large random integer.", effect: "-> I", example: "rand", assert: (stack) => stack.length === 1 && Number.isInteger(stack[0]) },
+                        { name: "maxint", description: "Pushes the largest safe integer available in the JavaScript environment.", effect: "-> I", example: "maxint", assert: (stack) => deepEqual(stack, [Number.MAX_SAFE_INTEGER]) },
+                        { name: "stack", description: "Pushes a list representation of the current stack.", effect: ".. X Y Z -> .. X Y Z [Z Y X ..]", example: "1 2 3 stack", assert: (stack) => deepEqual(stack, [1, 2, 3, [3, 2, 1]]) },
+                        { name: "Console Output", description: "Prints to the developer console (F12).", effect: "...", example: '"Hello" putchars', assert: (stack) => deepEqual(stack, []) },
+                    ]
+                },
+                {
+                    section: "Calculating with Lists: Combinators",
+                    cells: [
+                        { name: "i", description: "Executes a program (quotation) on the stack.", effect: "[ [P] ] -> ...", example: "[10 20 +] i", assert: (stack) => deepEqual(stack, [30]) },
+                        { name: "map", description: "Applies a program to each element of a list, creating a new list of results.", effect: "[L [P]] -> [L']", example: '[1 2 3 4] [dup *] map', assert: (stack) => deepEqual(stack, [[1, 4, 9, 16]]) },
+                        { name: "step", description: "Applies a program to each element of a list, accumulating results on the main stack.", effect: "[A L [P]] -> ...", example: '0 [1 2 3 4] [+] step', assert: (stack) => deepEqual(stack, [10]) },
+                        { name: "filter", description: "Creates a new list containing only the elements for which a program returns true.", effect: "[L [P]] -> [L']", example: '[1 2 3 4 5] [2 % 0 ==] filter', assert: (stack) => deepEqual(stack, [[2, 4]]) },
+                        { name: "while", description: "Executes a body program as long as a test program returns true.", effect: "[ [B] [D] ] -> ...", example: '1 5 [dup 0 >] [1 -] while', assert: (stack) => deepEqual(stack, [1, 0]) },
+                        { 
+                            name: "times", 
+                            description: "Executes a program a specific number of times.", 
+                            effect: "[X N [P]] -> [...]", 
+                            example: `# Using a quoted program
+10 3 [2 *] times
+
+# Using a user-defined generator
+[[0] >> [succ] <<] counter =
+4 [counter] times`, 
+                            assert: (stack) => deepEqual(stack, [80, 1, 2, 3, 4]) 
+                        },
+                    ]
+                },
+                {
+                    section: "Advanced Combinators",
+                    cells: [
+                        { name: "branch", description: "If the boolean B is true, executes T, otherwise executes F.", effect: "[B [T] [F]] -> ...", example: "10 5 > [\"Greater\"] [\"Not Greater\"] branch", assert: (stack) => deepEqual(stack, ["Greater"]) },
+                        { name: "cleave", description: "Applies two programs to the same value, leaving both results on the stack.", effect: "[X [P1] [P2]] -> [R1 R2]", example: "10 [dup *] [1 +] cleave", assert: (stack) => deepEqual(stack, [100, 11]) },
+                        { name: "cond", description: "Executes the program for the first true condition. The last element is the default case.", effect: "[V [ [C1 T1] .. [D] ]] -> ...", example: "2 [[ [1 ==] [pop \"one\"] ] [ [2 ==] [pop \"two\"] ] [ [pop \"other\"] ]] cond", assert: (stack) => deepEqual(stack, ["two"]) },
+                ],
+                },
+                       {
+                    section: "Recursive Combinators",
+                    cells: [
+                        { name: "Recursive Combinators", description: "Yield's powerful tools for handling recursion without naming functions.", effect: "...", example: `# First, define fib using binrec
+[ [2 <] [] [dup pred swap pred pred] [+] binrec ] fib =
+
+# Now, call it
+8 fib`, assert: (stack) => deepEqual(stack, [21]) },
+                    { name: "linrec", description: "Define factorial function with linrec", effect: "...", example: "[[null]  [succ]  [dup pred]  [*] linrec] fac = 5 fac", assert: (stack) => deepEqual(stack, [120]) },
+                    ]
+                }
+            ];
+
+            const simpleFormatter = (value) => {
+                if (typeof value === 'string') return `"${value}"`;
+                if (Array.isArray(value)) return `[${value.map(simpleFormatter).join(' ')}]`;
+                if (value === true) return 'true';
+                if (value === false) return 'false';
+                if (typeof value === 'object' && value !== null && typeof value.next === 'function') {
+                    return '<generator>';
+                }
+                if (typeof value === 'symbol') return value.toString();
+                return value;
+            };
+
+            documentation.forEach(section => {
+                const sectionHeader = document.createElement('h2');
+                sectionHeader.className = "text-2xl font-bold text-gray-800 mt-8 mb-4 border-b pb-2";
+                sectionHeader.textContent = section.section;
+                notebookContainer.appendChild(sectionHeader);
+
+                if (section.description) {
+                    const descP = document.createElement('p');
+                    descP.className = "mb-4 text-gray-600";
+                    descP.textContent = section.description;
+                    notebookContainer.appendChild(descP);
+                }
+
+                section.cells.forEach(cell => {
+                    const cellDiv = document.createElement('div');
+                    cellDiv.className = "cell bg-white p-4 rounded-lg shadow mb-6";
+                    
+                    cellDiv.innerHTML = `
+                        <div class="flex items-start space-x-4">
+                            <div class="cell-controls flex-shrink-0 flex flex-col items-center pt-3 space-y-2">
+                                <button class="play-pause-btn control-btn text-gray-500 hover:text-indigo-600 rounded-full w-8 h-8 flex items-center justify-center hover:bg-gray-100 transition-colors">
+                                    ▶
+                                </button>
+                                <button class="stop-btn control-btn text-gray-500 hover:text-red-600 rounded-full w-8 h-8 flex items-center justify-center hover:bg-gray-100 transition-colors" disabled>
+                                    ⏹️
+                                </button>
+                                <div class="status-indicator mt-2 w-2 h-2 rounded-full bg-gray-300" title="Idle"></div>
+                            </div>
+                            <div class="flex-grow min-w-0">
+                                <h3 class="text-xl font-bold font-mono text-indigo-600">${cell.name}</h3>
+                                <p class="mt-2 mb-3 text-gray-700">
+                                    ${cell.description}
+                                    <br>
+                                    <span class="font-mono text-sm bg-gray-100 p-1 rounded">Stack effect: ${cell.effect}</span>
+                                </p>
+                                <div class="code-block bg-gray-50 p-3 rounded-md border">
+                                    <pre><code contenteditable="true" class="fira-code block outline-none whitespace-pre-wrap">${cell.example}</code></pre>
+                                </div>
+                                <div class="mt-4">
+                                    <label class="flex items-center space-x-2 text-sm text-gray-600">
+                                        <input type="checkbox" class="debug-checkbox h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                        <span>Debug Mode</span>
+                                    </label>
+                                    <div class="debug-controls mt-2 hidden">
+                                        <label class="block text-sm font-medium text-gray-700">Step Delay: <span class="delay-value font-mono">1000</span>ms</label>
+                                        <input type="range" min="0" max="2000" value="1000" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer delay-slider">
+                                    </div>
+                                </div>
+                                <div class="output mt-3 p-3 bg-gray-800 text-white rounded-md fira-code min-h-[40px] whitespace-pre-wrap"></div>
+                            </div>
+                        </div>
+                    `;
+                    notebookContainer.appendChild(cellDiv);
+                });
+            });
+
+            notebookContainer.addEventListener('input', e => {
+                if (e.target.classList.contains('delay-slider')) {
+                    const cell = e.target.closest('.cell');
+                    const valueSpan = cell.querySelector('.delay-value');
+                    valueSpan.textContent = e.target.value;
+                }
+            });
+
+            notebookContainer.addEventListener('change', e => {
+                if (e.target.classList.contains('debug-checkbox')) {
+                    const cell = e.target.closest('.cell');
+                    const debugControls = cell.querySelector('.debug-controls');
+                    debugControls.classList.toggle('hidden', !e.target.checked);
+                }
+            });
+
+            notebookContainer.addEventListener('click', async (e) => {
+                const button = e.target.closest('.control-btn');
+                if (!button) return;
+
+                const cell = button.closest('.cell');
+                const playPauseBtn = cell.querySelector('.play-pause-btn');
+                const stopBtn = cell.querySelector('.stop-btn');
+                const statusIndicator = cell.querySelector('.status-indicator');
+                const codeElement = cell.querySelector('code');
+                const outputElement = cell.querySelector('.output');
+                const debugCheckbox = cell.querySelector('.debug-checkbox');
+                const delaySlider = cell.querySelector('.delay-slider');
+
+                let cellState = runningCells.get(cell);
+
+                if (button.classList.contains('stop-btn')) {
+                    if (cellState) {
+                        cellState.stopSignal.stopped = true;
+                    }
+                    return;
+                }
+
+                if (button.classList.contains('play-pause-btn')) {
+                    if (cellState) {
+                        cellState.pauseSignal.paused = !cellState.pauseSignal.paused;
+                        if (cellState.pauseSignal.paused) {
+                            playPauseBtn.innerHTML = '▶';
+                            statusIndicator.classList.remove('animate-pulse');
+                            statusIndicator.title = 'Paused';
+                        } else {
+                            playPauseBtn.innerHTML = '⏸️';
+                            statusIndicator.classList.add('animate-pulse');
+                            statusIndicator.title = 'Running';
+                            cellState.resume();
+                        }
+                        return;
+                    }
+
+                    const code = codeElement.innerText;
+                    const stack = [];
+                    const stopSignal = { stopped: false };
+                    const pauseSignal = { paused: false };
+                    let currentToken = null;
+                    let stackBefore = [];
+                    let resumeFunction = null;
+                    
+                    const isDebug = debugCheckbox.checked;
+                    
+                    const runOptions = {
+                        stopSignal,
+                        pauseSignal,
+                        isDebug,
+                        delay: isDebug ? parseInt(delaySlider.value, 10) : 0,
+                        getDelay: () => isDebug ? parseInt(delaySlider.value, 10) : 0,
+                        onToken: (token, currentStack) => {
+                            currentToken = token;
+                            stackBefore = JSON.parse(JSON.stringify(currentStack));
+                        },
+                        onStep: (currentStack) => {
+                            let tokenDisplay = simpleFormatter(currentToken);
+                            if (typeof currentToken === 'object' && currentToken !== null) {
+                                tokenDisplay = `[...]`;
+                            }
+                            const output = `[ ${currentStack.map(simpleFormatter).join(' ')} ]  <- [ ${stackBefore.map(simpleFormatter).join(' ')} ] ${tokenDisplay}`;
+                            outputElement.textContent = output;
+                        },
+                        setResume: (resume) => {
+                            resumeFunction = resume;
+                        }
+                    };
+
+                    runningCells.set(cell, { 
+                        stopSignal, 
+                        pauseSignal, 
+                        resume: () => {
+                            if (resumeFunction) resumeFunction();
+                        } 
+                    });
+
+                    playPauseBtn.innerHTML = '⏸️';
+                    stopBtn.disabled = false;
+                    statusIndicator.className = 'status-indicator mt-2 w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+                    statusIndicator.title = 'Running';
+                    codeElement.setAttribute('contenteditable', 'false');
+                    outputElement.textContent = '';
+                    outputElement.classList.remove('text-red-400', 'bg-red-100');
+                    outputElement.classList.add('bg-gray-800', 'text-white');
+
+                    try {
+                        Yield.reset(); // Reset state before each run
+                        const program = Yield.parse(code);
+                        await Yield.run(program, stack, runOptions);
+                        
+                        let outputText = `[ ${stack.map(simpleFormatter).join(' ')} ]`;
+                        if (stopSignal.stopped) {
+                            outputText += "\n(Execution stopped by user)";
+                            statusIndicator.className = 'status-indicator mt-2 w-2 h-2 rounded-full bg-yellow-500';
+                            statusIndicator.title = 'Stopped';
+                        } else {
+                            statusIndicator.className = 'status-indicator mt-2 w-2 h-2 rounded-full bg-green-500';
+                            statusIndicator.title = 'Success';
+                        }
+                        outputElement.textContent = outputText;
+
+                    } catch (error) {
+                        console.error(error);
+                        outputElement.textContent = `Error: ${error.message}`;
+                        outputElement.classList.add('text-red-400');
+                        outputElement.classList.remove('bg-gray-800', 'text-white');
+                        statusIndicator.className = 'status-indicator mt-2 w-2 h-2 rounded-full bg-red-500';
+                        statusIndicator.title = `Error: ${error.message}`;
+                    } finally {
+                        if (!pauseSignal.paused) {
+                            runningCells.delete(cell);
+                            playPauseBtn.innerHTML = '▶';
+                            stopBtn.disabled = true;
+                            codeElement.setAttribute('contenteditable', 'true');
+                            if (statusIndicator.title === 'Success' || statusIndicator.title === 'Stopped') {
+                                // Keep success/stopped status for a moment
+                            } else {
+                                statusIndicator.className = 'status-indicator mt-2 w-2 h-2 rounded-full bg-gray-300';
+                                statusIndicator.title = 'Idle';
+                            }
+                            statusIndicator.classList.remove('animate-pulse');
+                        }
+                    }
+                }
+            });
+
+            window.joyNotebookDocumentation = documentation;
+        });
+    </script>
+    
+    <script id="notebook-tests">
+        // Self-testing script to verify examples after refactoring
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('%cRunning Yield Notebook Test Suite...', 'color: blue; font-weight: bold;');
+
+            const deepEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+            let testsPassed = 0;
+            let testsFailed = 0;
+            const documentation = window.joyNotebookDocumentation || [];
+
+            for (const section of documentation) {
+                for (const cell of section.cells) {
+                    const assertFn = cell.assert;
+                    if (!assertFn) continue;
+
+                    const description = `${section.section}: ${cell.name}`;
+                    const code = cell.example;
+                    const stack = [];
+
+                    try {
+                        Yield.reset(); // Reset state before each test
+                        const program = Yield.parse(code);
+                        await Yield.run(program, stack);
+                        
+                        if (assertFn(stack)) {
+                            testsPassed++;
+                        } else {
+                            console.error(`%c  FAIL: ${description}`, 'color: red');
+                            console.error(`    Code:     ${code.replace(/\n/g, ' ')}`);
+                            console.error(`    Assertion Failed`);
+                            console.error(`    Got Stack: [${stack.map(JSON.stringify).join(', ')}]`);
+                            testsFailed++;
+                        }
+                    } catch (e) {
+                        console.error(`%c  ERROR in '${description}': ${e.message}`, 'color: red');
+                        console.error(e);
+                        testsFailed++;
+                    }
+                }
+            }
+
+            console.log('%c--------------------------------', 'color: blue;');
+            if (testsFailed === 0) {
+                console.log(`%cAll ${testsPassed} notebook examples passed!`, 'color: green; font-weight: bold;');
+            } else {
+                console.log(`%c${testsPassed} passed, ${testsFailed} failed.`, 'color: red; font-weight: bold;');
+            }
+        });
+    </script>
+</body>
+</html>

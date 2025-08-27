@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chladni Plate Visualization with Audio</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font and minor style adjustments */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block; /* Removes default bottom margin */
+        }
+        /* Style for slider thumbs */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #60a5fa; /* A nice blue */
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #1e3a8a;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #60a5fa;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #1e3a8a;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Chladni Plate Visualization</h1>
+            <p class="text-gray-400 mt-2">Tune the frequency to discover resonant patterns.</p>
+        </header>
+
+        <!-- Main container for the sketch and controls -->
+        <main class="flex flex-col lg:flex-row gap-8">
+            <!-- Canvas will be injected here -->
+            <div id="sketch-container" class="w-full lg:w-2/3 border-4 border-gray-700 rounded-xl overflow-hidden shadow-lg mx-auto">
+                <canvas id="chladni-canvas"></canvas>
+            </div>
+
+            <!-- Controls for the simulation -->
+            <div id="controls" class="w-full lg:w-1/3 space-y-5 bg-gray-900/50 p-6 rounded-xl">
+                <!-- Audio Controls -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="freqSlider" class="font-medium text-white">Frequency</label>
+                        <span id="freqValue" class="text-blue-300 font-mono bg-gray-700 px-2 py-1 rounded">0 Hz</span>
+                    </div>
+                    <input id="freqSlider" type="range" min="0" max="3500" value="0" step="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div>
+                    <label for="oscType" class="font-medium text-white mb-2 block">Waveform</label>
+                    <select id="oscType" class="w-full bg-gray-700 text-white p-2 rounded-md border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <option value="sine">Sine</option>
+                        <option value="square">Square</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="sawtooth">Sawtooth</option>
+                    </select>
+                </div>
+                <div class="flex items-center justify-between">
+                    <label for="muteToggle" class="font-medium text-white">Mute Sound</label>
+                    <input id="muteToggle" type="checkbox" class="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
+                </div>
+
+                <!-- Visual Controls -->
+                <div class="border-t border-gray-700 pt-4 space-y-5">
+                     <div class="text-center bg-gray-700/50 p-2 rounded-lg">
+                        <label class="text-sm text-gray-400">Active Resonant Mode</label>
+                        <p id="modeValue" class="text-lg font-bold text-blue-300">(m, n) = (1, 1)</p>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="vSlider" class="font-medium text-white">Max Amplitude</label>
+                            <span id="vValue" class="text-blue-300 font-mono bg-gray-700 px-2 py-1 rounded">0.15</span>
+                        </div>
+                        <input id="vSlider" type="range" min="0.01" max="0.3" value="0.15" step="0.005" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="numSlider" class="font-medium text-white">Particles</label>
+                            <span id="numValue" class="text-blue-300 font-mono bg-gray-700 px-2 py-1 rounded">8000</span>
+                        </div>
+                        <input id="numSlider" type="range" min="100" max="10000" value="8000" step="100" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                     <div class="flex items-center justify-between">
+                        <label for="heatmapToggle" class="font-medium text-white">Show Heatmap</label>
+                        <input id="heatmapToggle" type="checkbox" class="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded focus:ring-blue-500" checked>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- GLOBAL VARIABLES & SETTINGS ---
+        let particles, canvas, ctx, controls;
+        let N, v_max; // Simulation parameters from sliders
+        let m_eff = 0, n_eff = 0, effective_amplitude = 0; // Calculated values that drive the visualization
+
+        // Web Audio variables
+        let audioContext, oscillator, gainNode, analyser;
+        let isAudioInitialized = false;
+        let frequencyData; // Array to store audio frequency analysis data
+
+        // --- BUG FIX & OPTIMIZATION VARIABLE ---
+        let isSimulationReady = false;
+
+        // --- OPTIMIZATION VARIABLES ---
+        let heatmapCanvas, heatmapCtx; 
+        let last_m_eff = -1, last_n_eff = -1;
+
+        // Physics & Audio constants
+        const a = 1, b = 1; // Coefficients for the Chladni equation
+        const minWalk = 0.001; // Minimum random movement for particles
+        const PI = Math.PI;
+        const BASE_FREQUENCY = 15; // A base multiplier to calculate the natural frequency of a mode
+        const RESONANCE_BANDWIDTH = 20; // Controls how "sharp" the resonance is
+
+        const settings = {
+            nParticles: 8000, // Lowered default for better performance
+            drawHeatmap: true
+        };
+        
+        let modes = [];
+
+        // --- CHLADNI EQUATION ---
+        const chladni = (x, y, a, b, m, n) =>
+            a * Math.sin(PI * n * x) * Math.sin(PI * m * y) + b * Math.sin(PI * m * x) * Math.sin(PI * n * y);
+        
+        // --- HSL to RGBA conversion ---
+        // Updated to include an alpha channel for translucency.
+        function hslToRgba(h, s, l, alpha) {
+            let r, g, b;
+            if (s == 0) { r = g = b = l; } 
+            else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1 / 6) return p + (q - p) * 6 * t;
+                    if (t < 1 / 2) return q;
+                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1 / 3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1 / 3);
+            }
+            return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${alpha})`;
+        }
+
+        // --- PARTICLE CLASS ---
+        class Particle {
+            constructor() {
+                this.x = Math.random();
+                this.y = Math.random();
+            }
+
+            move() {
+                let eq = chladni(this.x, this.y, a, b, m_eff, n_eff);
+                let stochasticAmplitude = effective_amplitude * Math.abs(eq);
+
+                if (effective_amplitude > 0 && stochasticAmplitude <= minWalk) {
+                    stochasticAmplitude = minWalk;
+                }
+
+                this.x += (Math.random() * 2 - 1) * stochasticAmplitude;
+                this.y += (Math.random() * 2 - 1) * stochasticAmplitude;
+                
+                if (this.x < 0) this.x = 0;
+                if (this.x > 1) this.x = 1;
+                if (this.y < 0) this.y = 0;
+                if (this.y > 1) this.y = 1;
+            }
+
+            show() {
+                const screenX = this.x * canvas.width;
+                const screenY = this.y * canvas.height;
+                ctx.fillRect(screenX, screenY, 1.5, 1.5);
+            }
+        }
+
+        // --- CORE FUNCTIONS ---
+
+        const precalculateModes = () => {
+            const seen = new Set();
+            for (let m = 1; m <= 15; m++) {
+                for (let n = 1; n <= 15; n++) {
+                    const key = m < n ? `${m},${n}` : `${n},${m}`;
+                    if (!seen.has(key)) {
+                        const k_squared = m * m + n * n;
+                        modes.push({ m, n, k_squared });
+                        seen.add(key);
+                    }
+                }
+            }
+            modes.sort((a, b) => a.k_squared - b.k_squared);
+        };
+
+        const setupParticles = () => {
+            particles = [];
+            const nParticles = parseInt(controls.num.value);
+            for (let i = 0; i < nParticles; i++) {
+                particles[i] = new Particle();
+            }
+        };
+
+        const updateParameters = () => {
+            N = parseInt(controls.num.value);
+            v_max = parseFloat(controls.v.value);
+            controls.numValue.textContent = N;
+            controls.vValue.textContent = v_max.toFixed(3);
+
+            if (!isAudioInitialized) return;
+
+            analyser.getByteFrequencyData(frequencyData);
+            let total_energy = 0;
+            for (let i = 0; i < analyser.frequencyBinCount; i++) {
+                total_energy += frequencyData[i];
+            }
+            const volume = total_energy / (analyser.frequencyBinCount * 255);
+
+            const freq = parseFloat(controls.freqSlider.value);
+            const target_k_squared = freq / BASE_FREQUENCY;
+
+            let closestMode = modes[0];
+            let minDiff = Infinity;
+            for (const mode of modes) {
+                const diff = Math.abs(target_k_squared - mode.k_squared);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestMode = mode;
+                }
+            }
+            
+            m_eff = closestMode.m;
+            n_eff = closestMode.n;
+            
+            const true_freq = BASE_FREQUENCY * closestMode.k_squared;
+            const freqDifference = Math.abs(freq - true_freq);
+            const resonanceFactor = Math.exp(-Math.pow(freqDifference, 2) / (2 * Math.pow(RESONANCE_BANDWIDTH, 2)));
+            
+            const freqGain = Math.min(freq / 100.0, 1.0);
+
+            effective_amplitude = v_max * volume * resonanceFactor * freqGain;
+
+            if (m_eff !== last_m_eff || n_eff !== last_n_eff) {
+                controls.modeValue.textContent = `(m, n) = (${m_eff}, ${n_eff})`;
+                redrawHeatmapToBuffer();
+                last_m_eff = m_eff;
+                last_n_eff = n_eff;
+            }
+        };
+        
+        const redrawHeatmapToBuffer = () => {
+            // Clear the offscreen canvas to be fully transparent.
+            heatmapCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+
+            // If there's no significant vibration (e.g., at 0 Hz), exit. The canvas remains transparent.
+            if (effective_amplitude < 0.001) {
+                return;
+            }
+
+            const resolution = 5;
+            for (let i = 0; i <= heatmapCanvas.width; i += resolution) {
+                for (let j = 0; j <= heatmapCanvas.height; j += resolution) {
+                    let normX = i / heatmapCanvas.width;
+                    let normY = j / heatmapCanvas.height;
+                    let eq = chladni(normX, normY, a, b, m_eff, n_eff);
+                    let hue = (eq + 1) / 2;
+                    // Use the new function to get a translucent color (60% opacity).
+                    heatmapCtx.fillStyle = hslToRgba(hue, 0.8, 0.5, 0.6);
+                    heatmapCtx.fillRect(i, j, resolution, resolution);
+                }
+            }
+        };
+
+        const moveParticlesOnly = () => {
+            let movingParticles = particles.slice(0, N);
+            for (let particle of movingParticles) {
+                particle.move();
+            }
+        };
+
+        const drawParticles = () => {
+            ctx.fillStyle = 'white';
+            let particlesToDraw = particles.slice(0, N);
+            for (let particle of particlesToDraw) {
+                particle.show();
+            }
+        };
+
+        // --- ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+            updateParameters();
+
+            // Always clear the main canvas to the dark background color first.
+            ctx.fillStyle = 'rgb(10, 20, 30)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // If the heatmap is enabled and simulation is ready, draw the buffered heatmap on top.
+            // Because the buffer is translucent, the dark background will show through.
+            if (settings.drawHeatmap && isSimulationReady) {
+                ctx.drawImage(heatmapCanvas, 0, 0);
+            }
+
+            if (isSimulationReady) {
+                moveParticlesOnly();
+            }
+            
+            drawParticles();
+        }
+        
+        // --- INITIALIZATION & EVENT LISTENERS ---
+
+        function handleResize() {
+            const container = document.getElementById('sketch-container');
+            const size = Math.min(container.offsetWidth, window.innerHeight * 0.65);
+            canvas.width = size;
+            canvas.height = size;
+            heatmapCanvas.width = size;
+            heatmapCanvas.height = size;
+            last_m_eff = -1; 
+        }
+        
+        function setupAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioContext.createOscillator();
+            gainNode = audioContext.createGain();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.8;
+            
+            frequencyData = new Uint8Array(analyser.frequencyBinCount);
+
+            oscillator.type = controls.oscType.value;
+            oscillator.frequency.setValueAtTime(parseFloat(controls.freqSlider.value), audioContext.currentTime);
+            
+            const initialGain = controls.muteToggle.checked ? 0 : 0.2;
+            gainNode.gain.setValueAtTime(initialGain, audioContext.currentTime);
+
+            oscillator.connect(analyser);
+            analyser.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.start();
+        }
+
+        function initAudioOnFirstInteraction() {
+            if (isAudioInitialized) return;
+            setupAudio();
+            isAudioInitialized = true;
+            isSimulationReady = true;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('chladni-canvas');
+            ctx = canvas.getContext('2d');
+
+            heatmapCanvas = document.createElement('canvas');
+            heatmapCtx = heatmapCanvas.getContext('2d');
+
+            controls = {
+                v: document.getElementById("vSlider"),
+                num: document.getElementById("numSlider"),
+                vValue: document.getElementById("vValue"),
+                numValue: document.getElementById("numValue"),
+                modeValue: document.getElementById("modeValue"),
+                heatmapToggle: document.getElementById("heatmapToggle"),
+                freqSlider: document.getElementById("freqSlider"),
+                freqValue: document.getElementById("freqValue"),
+                oscType: document.getElementById("oscType"),
+                muteToggle: document.getElementById("muteToggle"),
+            };
+
+            // --- EVENT LISTENERS ---
+            controls.heatmapToggle.addEventListener('change', (e) => {
+                settings.drawHeatmap = e.target.checked;
+            });
+            
+            controls.num.addEventListener('change', setupParticles);
+
+            controls.muteToggle.addEventListener('change', (e) => {
+                initAudioOnFirstInteraction();
+                if (!audioContext) return;
+                
+                if (e.target.checked) {
+                    gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.05);
+                } else {
+                    gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.05);
+                }
+            });
+
+            controls.freqSlider.addEventListener('input', (e) => {
+                initAudioOnFirstInteraction();
+                const newFreq = parseFloat(e.target.value);
+                if (oscillator) {
+                    oscillator.frequency.setValueAtTime(newFreq, audioContext.currentTime);
+                }
+                controls.freqValue.textContent = `${newFreq} Hz`;
+            });
+
+            controls.oscType.addEventListener('change', (e) => {
+                initAudioOnFirstInteraction();
+                if (oscillator) oscillator.type = e.target.value;
+            });
+
+            const allControls = document.querySelectorAll('#controls input, #controls select');
+            allControls.forEach(control => {
+                control.addEventListener('pointerdown', initAudioOnFirstInteraction, { once: true });
+            });
+
+            // --- INITIAL SETUP ---
+            precalculateModes();
+            handleResize();
+            setupParticles();
+            animate();
+
+            window.addEventListener('resize', handleResize);
+        });
+    </script>
+</body>
+</html>
